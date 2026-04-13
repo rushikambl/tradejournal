@@ -87,6 +87,7 @@
         <svg width="14" height="14" viewBox="0 0 28 28" fill="none"><polyline points="2,22 8,12 14,16 22,4 26,8" stroke="#6ee7b7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Trade<span>Journal</span>
       </div>
+      <div id="topbar-title">Dashboard</div>
       <div class="topbar-right">
         <div class="sync-badge">
           <div class="sync-dot" id="sync-dot"></div>
@@ -106,21 +107,21 @@
         </div>
         <div class="kpi-grid" id="kpi-grid"></div>
         <div class="dash-grid">
-          <div class="dash-card wide">
+          <div class="dash-card" id="dash-main-chart">
             <div class="card-header">
               <div class="card-title">Combined P&amp;L Curve</div>
               <span class="cbadge emerald">Cumulative net</span>
             </div>
-            <div class="chart-area"><canvas id="dash-chart"></canvas></div>
+            <div class="chart-area tall"><canvas id="dash-chart"></canvas></div>
           </div>
-          <div class="dash-card">
+          <div class="dash-card" id="dash-sym-card">
             <div class="card-header">
               <div class="card-title">P&amp;L by Symbol</div>
               <span class="cbadge slate">Breakdown</span>
             </div>
             <div class="chart-area"><canvas id="dash-sym-chart"></canvas></div>
           </div>
-          <div class="dash-card">
+          <div class="dash-card" id="dash-recent-card">
             <div class="card-header">
               <div class="card-title">Recent Trades</div>
               <span class="cbadge slate" id="recent-count">—</span>

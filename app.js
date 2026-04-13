@@ -366,12 +366,14 @@ function renderAll() {
 
 // ── Page switching ─────────────────────────────────────────────────────────
 window.switchPage = function(name) {
+  const titles = { dashboard:'Dashboard', all:'All Trades', s200:'200% Strategy', s300:'300% Strategy', charts:'Analytics' };
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.sb-link,.bn').forEach(el => el.classList.toggle('active', el.dataset.page === name));
   const pg = document.getElementById('page-' + name);
   if (pg) pg.classList.add('active');
+  const tt = document.getElementById('topbar-title');
+  if (tt) tt.textContent = titles[name] || '';
   if (name === 'charts') setTimeout(renderCharts, 80);
-  // close mobile sidebar
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('mob-sb-overlay').classList.remove('show');
 };
