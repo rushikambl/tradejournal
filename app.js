@@ -449,8 +449,16 @@ window.applyThreshold = async function() {
 };
 
 // ── Sheet / Sidebar ────────────────────────────────────────────────────────
-window.openSheet = function() { document.getElementById('sheet').classList.add('open'); document.getElementById('overlay').classList.add('show'); };
-window.closeSheet = function() { document.getElementById('sheet').classList.remove('open'); document.getElementById('overlay').classList.remove('show'); };
+window.openSheet = function() {
+  document.getElementById('sheet').classList.add('open');
+  document.getElementById('overlay').classList.add('show');
+  document.body.style.overflow = 'hidden';
+};
+window.closeSheet = function() {
+  document.getElementById('sheet').classList.remove('open');
+  document.getElementById('overlay').classList.remove('show');
+  document.body.style.overflow = '';
+};
 window.toggleSidebar = function() { document.getElementById('sidebar').classList.toggle('open'); document.getElementById('mob-sb-overlay').classList.toggle('show'); };
 
 // ── CSV ────────────────────────────────────────────────────────────────────
@@ -476,4 +484,5 @@ window.showToast = function(msg) {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 document.getElementById('f-date').value = new Date().toISOString().split('T')[0];
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeSheet(); } });
 boot();
