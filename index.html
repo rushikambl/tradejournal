@@ -5,302 +5,343 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#05070f">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f0f2ff">
 <title>TradeJournal</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<div id="loader">
-  <div class="loader-inner">
-    <div class="loader-logo">
-      <div class="loader-icon"><svg width="28" height="28" viewBox="0 0 28 28" fill="none"><polyline points="2,22 8,12 14,16 22,4 26,8" stroke="#6ee7b7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="26" cy="8" r="2.5" fill="#6ee7b7"/></svg></div>
-      <div class="loader-text">Trade<span>Journal</span></div>
+<!-- SPLASH -->
+<div id="splash">
+  <div class="splash-logo">
+    <div class="splash-icon">
+      <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+        <path d="M4 24 L10 14 L16 18 L24 6 L28 10" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="28" cy="10" r="3" fill="white"/>
+      </svg>
     </div>
-    <div class="loader-bar-track"><div class="loader-bar" id="loader-bar"></div></div>
-    <div class="loader-status" id="loader-status">Connecting to Firebase…</div>
+    <span>TradeJournal</span>
+  </div>
+  <div class="splash-dots">
+    <div class="sdot"></div><div class="sdot"></div><div class="sdot"></div>
   </div>
 </div>
 
+<!-- APP -->
 <div id="app" class="hidden">
-  <aside id="sidebar">
-    <div class="sb-logo">
-      <div class="sb-icon"><svg width="18" height="18" viewBox="0 0 28 28" fill="none"><polyline points="2,22 8,12 14,16 22,4 26,8" stroke="#6ee7b7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-      <div class="sb-brand">Trade<span>Journal</span></div>
-    </div>
-    <div class="sb-section-label">OVERVIEW</div>
-    <nav class="sb-nav">
-      <button class="sb-link active" data-page="dashboard" onclick="switchPage('dashboard')">
-        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="1" y="1" width="5.5" height="5.5" rx="1.5" fill="currentColor"/><rect x="8.5" y="1" width="5.5" height="5.5" rx="1.5" fill="currentColor"/><rect x="1" y="8.5" width="5.5" height="5.5" rx="1.5" fill="currentColor"/><rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1.5" fill="currentColor"/></svg>
-        Dashboard
-      </button>
-      <button class="sb-link" data-page="all" onclick="switchPage('all')">
-        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="1" y="2" width="13" height="2" rx="1" fill="currentColor"/><rect x="1" y="6.5" width="13" height="2" rx="1" fill="currentColor"/><rect x="1" y="11" width="13" height="2" rx="1" fill="currentColor"/></svg>
-        All Trades
-      </button>
-    </nav>
-    <div class="sb-section-label">STRATEGIES</div>
-    <nav class="sb-nav">
-      <button class="sb-link" data-page="s200" onclick="switchPage('s200')">
-        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><polyline points="1,13 5,7 9,9 14,2" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
-        200% Strategy
-      </button>
-      <button class="sb-link" data-page="s300" onclick="switchPage('s300')">
-        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><polyline points="1,13 5,7 9,9 14,2" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
-        300% Strategy
-      </button>
-    </nav>
-    <div class="sb-section-label">ANALYTICS</div>
-    <nav class="sb-nav">
-      <button class="sb-link" data-page="charts" onclick="switchPage('charts')">
-        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="1" y="8" width="3" height="6" rx="1" fill="currentColor"/><rect x="6" y="5" width="3" height="9" rx="1" fill="currentColor"/><rect x="11" y="1" width="3" height="13" rx="1" fill="currentColor"/></svg>
-        Charts
-      </button>
-    </nav>
-    <div class="sb-spacer"></div>
-    <div class="sb-threshold">
-      <div class="sb-threshold-label">
-        <svg width="11" height="11" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="#6ee7b7" stroke-width="1.2"/><line x1="6" y1="4" x2="6" y2="6.5" stroke="#6ee7b7" stroke-width="1.2" stroke-linecap="round"/><circle cx="6" cy="8.5" r=".7" fill="#6ee7b7"/></svg>
-        Delta Threshold
+
+  <!-- DRAWER OVERLAY -->
+  <div id="drawer-overlay" onclick="closeDrawer()"></div>
+
+  <!-- DRAWER (mobile) / SIDEBAR (desktop) -->
+  <aside id="drawer">
+    <div class="drawer-header">
+      <div class="drawer-logo">
+        <div class="drawer-icon">
+          <svg width="18" height="18" viewBox="0 0 32 32" fill="none">
+            <path d="M4 24 L10 14 L16 18 L24 6 L28 10" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <span>TradeJournal</span>
       </div>
-      <div class="sb-threshold-row">
-        <input type="number" id="dd-threshold" value="1000" min="100" step="100">
-        <button onclick="applyThreshold()">Set</button>
-      </div>
-      <div class="sb-threshold-sub">₹<span id="threshold-display">1,000</span> / lot</div>
+      <button class="drawer-close" onclick="closeDrawer()">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><line x1="2" y1="2" x2="16" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="2" x2="2" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
     </div>
-    <div class="sb-add-btn" onclick="openSheet()">
-      <svg width="13" height="13" viewBox="0 0 14 14" fill="none"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-      Add Trade
+
+    <nav class="drawer-nav">
+      <div class="nav-group-label">Overview</div>
+      <button class="nav-item active" data-page="dashboard" onclick="nav('dashboard')">
+        <span class="nav-icon">⬛</span>Dashboard
+      </button>
+      <button class="nav-item" data-page="all" onclick="nav('all')">
+        <span class="nav-icon">📋</span>All Trades
+      </button>
+
+      <div class="nav-group-label">Strategies</div>
+      <button class="nav-item" data-page="s200" onclick="nav('s200')">
+        <span class="nav-icon">📈</span>200% Strategy
+      </button>
+      <button class="nav-item" data-page="s300" onclick="nav('s300')">
+        <span class="nav-icon">📊</span>300% Strategy
+      </button>
+
+      <div class="nav-group-label">Analytics</div>
+      <button class="nav-item" data-page="charts" onclick="nav('charts')">
+        <span class="nav-icon">✦</span>Charts
+      </button>
+    </nav>
+
+    <div class="drawer-footer">
+      <div class="threshold-block">
+        <div class="threshold-label">Delta Alert Threshold</div>
+        <div class="threshold-input-row">
+          <input type="number" id="dd-threshold" value="1000" min="100" step="100" placeholder="1000">
+          <button onclick="applyThreshold()">Set</button>
+        </div>
+        <div class="threshold-hint">₹<span id="threshold-display">1,000</span> / lot</div>
+      </div>
     </div>
   </aside>
 
-  <div id="main-wrap">
+  <!-- MAIN -->
+  <div id="main">
+
+    <!-- TOPBAR -->
     <header id="topbar">
-      <button class="hamburger" onclick="toggleSidebar()">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="4" width="14" height="1.8" rx=".9" fill="currentColor"/><rect x="2" y="8.1" width="14" height="1.8" rx=".9" fill="currentColor"/><rect x="2" y="12.2" width="14" height="1.8" rx=".9" fill="currentColor"/></svg>
+      <button class="menu-btn" onclick="openDrawer()">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <rect x="2" y="5" width="16" height="2" rx="1" fill="currentColor"/>
+          <rect x="2" y="9" width="16" height="2" rx="1" fill="currentColor"/>
+          <rect x="2" y="13" width="16" height="2" rx="1" fill="currentColor"/>
+        </svg>
       </button>
       <div class="topbar-logo">
-        <svg width="14" height="14" viewBox="0 0 28 28" fill="none"><polyline points="2,22 8,12 14,16 22,4 26,8" stroke="#6ee7b7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Trade<span>Journal</span>
-      </div>
-      <div id="topbar-title">Dashboard</div>
-      <div class="topbar-right">
-        <div class="sync-badge">
-          <div class="sync-dot" id="sync-dot"></div>
-          <span id="sync-label">Live</span>
+        <div class="topbar-icon">
+          <svg width="14" height="14" viewBox="0 0 32 32" fill="none">
+            <path d="M4 24 L10 14 L16 18 L24 6 L28 10" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
         </div>
-        <button class="topbar-add" onclick="openSheet()">+ Add Trade</button>
+        TradeJournal
+      </div>
+      <div class="topbar-right">
+        <div class="live-badge" id="live-badge">
+          <div class="live-dot" id="live-dot"></div>
+          <span id="live-label">Live</span>
+        </div>
+        <button class="add-btn-top" onclick="openModal()">+ Add</button>
       </div>
     </header>
 
-    <main id="content">
+    <!-- PAGES -->
+    <div id="pages">
 
       <!-- DASHBOARD -->
-      <div id="page-dashboard" class="page active">
-        <div class="page-head">
-          <div class="page-title">Dashboard</div>
-          <div class="page-subtitle">Real-time portfolio overview</div>
+      <div class="page active" id="page-dashboard">
+        <div class="page-hero">
+          <div class="page-hero-left">
+            <div class="page-greeting">Good trading 👋</div>
+            <div class="page-title" id="dash-net-title">—</div>
+            <div class="page-sub">Net P&L across all strategies</div>
+          </div>
+          <div class="page-hero-right">
+            <button class="hero-add-btn" onclick="openModal()">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+              Add Trade
+            </button>
+          </div>
         </div>
-        <div class="kpi-grid" id="kpi-grid"></div>
-        <div class="dash-grid">
-          <div class="dash-card" id="dash-main-chart">
-            <div class="card-header">
-              <div class="card-title">Combined P&amp;L Curve</div>
-              <span class="cbadge emerald">Cumulative net</span>
+
+        <div class="kpi-row" id="kpi-dash"></div>
+
+        <div class="dash-layout">
+          <div class="dash-left">
+            <div class="glass-card">
+              <div class="card-top">
+                <div class="card-label">Combined P&L</div>
+                <div class="pill pill-purple">Cumulative</div>
+              </div>
+              <div class="chart-box tall"><canvas id="chart-dash-main"></canvas></div>
             </div>
-            <div class="chart-area tall"><canvas id="dash-chart"></canvas></div>
           </div>
-          <div class="dash-card" id="dash-sym-card">
-            <div class="card-header">
-              <div class="card-title">P&amp;L by Symbol</div>
-              <span class="cbadge slate">Breakdown</span>
+          <div class="dash-right">
+            <div class="glass-card">
+              <div class="card-top">
+                <div class="card-label">By Symbol</div>
+                <div class="pill pill-blue">Breakdown</div>
+              </div>
+              <div class="chart-box"><canvas id="chart-dash-sym"></canvas></div>
             </div>
-            <div class="chart-area"><canvas id="dash-sym-chart"></canvas></div>
-          </div>
-          <div class="dash-card" id="dash-recent-card">
-            <div class="card-header">
-              <div class="card-title">Recent Trades</div>
-              <span class="cbadge slate" id="recent-count">—</span>
+            <div class="glass-card">
+              <div class="card-top">
+                <div class="card-label">Recent Trades</div>
+                <div class="pill pill-slate" id="recent-pill">—</div>
+              </div>
+              <div id="recent-list"></div>
             </div>
-            <div id="recent-list"></div>
           </div>
         </div>
       </div>
 
       <!-- ALL TRADES -->
-      <div id="page-all" class="page">
-        <div class="page-head">
-          <div class="page-title">All Trades</div>
-          <div class="page-subtitle" id="all-subtitle">—</div>
+      <div class="page" id="page-all">
+        <div class="page-hero flat">
+          <div class="page-title sm">All Trades</div>
+          <div class="page-sub" id="all-sub">—</div>
         </div>
-        <div class="filter-row">
-          <div class="chips">
-            <button class="chip active" onclick="setFilter('strat','')" data-key="strat" data-val="">All</button>
-            <button class="chip" onclick="setFilter('strat','200')" data-key="strat" data-val="200">200%</button>
-            <button class="chip" onclick="setFilter('strat','300')" data-key="strat" data-val="300">300%</button>
+        <div class="filter-strip">
+          <div class="chip-group">
+            <button class="fchip active" data-key="strat" data-val="" onclick="setF('strat','')">All</button>
+            <button class="fchip" data-key="strat" data-val="200" onclick="setF('strat','200')">200%</button>
+            <button class="fchip" data-key="strat" data-val="300" onclick="setF('strat','300')">300%</button>
           </div>
-          <div class="chips">
-            <button class="chip" onclick="setFilter('result','profit')" data-key="result" data-val="profit">Profits</button>
-            <button class="chip" onclick="setFilter('result','loss')" data-key="result" data-val="loss">Losses</button>
-            <button class="chip" onclick="setFilter('result','alert')" data-key="result" data-val="alert">Alerts</button>
+          <div class="chip-group">
+            <button class="fchip" data-key="result" data-val="profit" onclick="setF('result','profit')">Profits</button>
+            <button class="fchip" data-key="result" data-val="loss" onclick="setF('result','loss')">Losses</button>
+            <button class="fchip" data-key="result" data-val="alert" onclick="setF('result','alert')">Alerts</button>
           </div>
-          <select class="fsel" id="fil-symbol" onchange="renderAll()"><option value="">All Symbols</option><option>NIFTY</option><option>BANKNIFTY</option><option>FINNIFTY</option><option>MIDCPNIFTY</option><option>SENSEX</option><option>BANKEX</option><option>OTHER</option></select>
-          <select class="fsel" id="fil-from" onchange="renderAll()"><option value="">From…</option></select>
-          <select class="fsel" id="fil-to" onchange="renderAll()"><option value="">To…</option></select>
+          <select class="fsel" id="fil-symbol" onchange="renderAllTrades()"><option value="">All Symbols</option><option>NIFTY</option><option>BANKNIFTY</option><option>FINNIFTY</option><option>MIDCPNIFTY</option><option>SENSEX</option><option>BANKEX</option><option>OTHER</option></select>
+          <select class="fsel" id="fil-from" onchange="renderAllTrades()"><option value="">From…</option></select>
+          <select class="fsel" id="fil-to" onchange="renderAllTrades()"><option value="">To…</option></select>
           <div style="flex:1"></div>
-          <button class="ghost-btn" onclick="clearFilters()">Clear</button>
-          <button class="ghost-btn" onclick="exportCSV()">Export CSV</button>
-          <button class="danger-btn" onclick="clearAllTrades()">Clear All</button>
+          <button class="action-btn" onclick="clearFilters()">Clear</button>
+          <button class="action-btn" onclick="exportCSV()">Export</button>
+          <button class="action-btn danger" onclick="clearAllTrades()">Clear All</button>
         </div>
-        <div class="table-card">
+        <div class="tbl-wrap">
           <table>
             <thead><tr>
-              <th class="tc">#</th>
-              <th class="sortable" onclick="sortBy('date')" id="th-date">Date</th>
+              <th>#</th><th class="sort" onclick="sortBy('date')" id="th-date">Date</th>
               <th>Strategy</th><th>Symbol</th>
-              <th class="sortable" onclick="sortBy('lots')" id="th-lots">Lots</th>
-              <th class="sortable" onclick="sortBy('pnl')" id="th-pnl">Gross P&amp;L</th>
+              <th class="sort" onclick="sortBy('lots')" id="th-lots">Lots</th>
+              <th class="sort" onclick="sortBy('pnl')" id="th-pnl">Gross P&amp;L</th>
               <th>Taxes</th>
-              <th class="sortable" onclick="sortBy('net')" id="th-net">Net P&amp;L</th>
-              <th>Drawdown</th><th>DD / Lot</th><th>Notes</th><th></th>
+              <th class="sort" onclick="sortBy('net')" id="th-net">Net P&amp;L</th>
+              <th>Drawdown</th><th>DD/Lot</th><th>Notes</th><th></th>
             </tr></thead>
-            <tbody id="all-tbody"></tbody>
+            <tbody id="tbody-all"></tbody>
           </table>
         </div>
-        <div class="section-title-row">
-          <div class="section-label">Symbol Breakdown</div>
-          <div class="count-pill" id="sym-count">—</div>
+        <div class="section-row">
+          <span class="section-lbl">Symbol Breakdown</span>
+          <span class="count-tag" id="sym-count">—</span>
         </div>
-        <div class="table-card">
+        <div class="tbl-wrap">
           <table>
             <thead><tr><th>Symbol</th><th>Trades</th><th>Gross P&amp;L</th><th>Taxes</th><th>Net P&amp;L</th><th>Wins</th><th>Losses</th><th>Win Rate</th></tr></thead>
-            <tbody id="symbol-tbody"></tbody>
+            <tbody id="tbody-sym"></tbody>
           </table>
         </div>
       </div>
 
-      <!-- 200% -->
-      <div id="page-s200" class="page">
-        <div class="page-head">
-          <div class="page-title">200% Strategy</div>
-          <div class="page-subtitle">Peak-based drawdown · Continuous · Never resets</div>
+      <!-- 200% STRATEGY -->
+      <div class="page" id="page-s200">
+        <div class="page-hero flat">
+          <div class="page-title sm">200% Strategy</div>
+          <div class="page-sub">Peak-based drawdown · Continuous</div>
         </div>
-        <div class="kpi-grid" id="kpi-200"></div>
-        <div class="table-card">
+        <div class="kpi-row" id="kpi-200"></div>
+        <div class="tbl-wrap">
           <table>
-            <thead><tr><th class="tc">#</th><th>Date</th><th>Symbol</th><th>Lots</th><th>Gross P&amp;L</th><th>Taxes</th><th>Net P&amp;L</th><th>Running P&amp;L</th><th>Peak P&amp;L</th><th>Drawdown</th><th>DD / Lot</th><th>Notes</th></tr></thead>
+            <thead><tr><th>#</th><th>Date</th><th>Symbol</th><th>Lots</th><th>Gross P&amp;L</th><th>Taxes</th><th>Net P&amp;L</th><th>Running P&amp;L</th><th>Peak P&amp;L</th><th>Drawdown</th><th>DD/Lot</th><th>Notes</th></tr></thead>
             <tbody id="tbody-200"></tbody>
           </table>
         </div>
       </div>
 
-      <!-- 300% -->
-      <div id="page-s300" class="page">
-        <div class="page-head">
-          <div class="page-title">300% Strategy</div>
-          <div class="page-subtitle">Peak-based drawdown · Continuous · Never resets</div>
+      <!-- 300% STRATEGY -->
+      <div class="page" id="page-s300">
+        <div class="page-hero flat">
+          <div class="page-title sm">300% Strategy</div>
+          <div class="page-sub">Peak-based drawdown · Continuous</div>
         </div>
-        <div class="kpi-grid" id="kpi-300"></div>
-        <div class="table-card">
+        <div class="kpi-row" id="kpi-300"></div>
+        <div class="tbl-wrap">
           <table>
-            <thead><tr><th class="tc">#</th><th>Date</th><th>Symbol</th><th>Lots</th><th>Gross P&amp;L</th><th>Taxes</th><th>Net P&amp;L</th><th>Running P&amp;L</th><th>Peak P&amp;L</th><th>Drawdown</th><th>DD / Lot</th><th>Notes</th></tr></thead>
+            <thead><tr><th>#</th><th>Date</th><th>Symbol</th><th>Lots</th><th>Gross P&amp;L</th><th>Taxes</th><th>Net P&amp;L</th><th>Running P&amp;L</th><th>Peak P&amp;L</th><th>Drawdown</th><th>DD/Lot</th><th>Notes</th></tr></thead>
             <tbody id="tbody-300"></tbody>
           </table>
         </div>
       </div>
 
       <!-- CHARTS -->
-      <div id="page-charts" class="page">
-        <div class="page-head">
-          <div class="page-title">Analytics</div>
-          <div class="page-subtitle">Performance across both strategies</div>
+      <div class="page" id="page-charts">
+        <div class="page-hero flat">
+          <div class="page-title sm">Analytics</div>
+          <div class="page-sub">Performance charts across all strategies</div>
         </div>
         <div class="charts-grid">
-          <div class="chart-card span2">
-            <div class="card-header"><div class="card-title">Combined Net P&amp;L</div><span class="cbadge emerald">Both strategies</span></div>
-            <div class="chart-area tall"><canvas id="chart-combined"></canvas></div>
+          <div class="glass-card span2">
+            <div class="card-top"><div class="card-label">Combined Net P&amp;L</div><div class="pill pill-purple">Both strategies</div></div>
+            <div class="chart-box tall"><canvas id="chart-combined"></canvas></div>
           </div>
-          <div class="chart-card">
-            <div class="card-header"><div class="card-title">200% Strategy</div><span class="cbadge blue">P&amp;L curve</span></div>
-            <div class="chart-area"><canvas id="chart-200"></canvas></div>
+          <div class="glass-card">
+            <div class="card-top"><div class="card-label">200% Strategy</div><div class="pill pill-blue">P&amp;L curve</div></div>
+            <div class="chart-box"><canvas id="chart-200"></canvas></div>
           </div>
-          <div class="chart-card">
-            <div class="card-header"><div class="card-title">300% Strategy</div><span class="cbadge teal">P&amp;L curve</span></div>
-            <div class="chart-area"><canvas id="chart-300"></canvas></div>
+          <div class="glass-card">
+            <div class="card-top"><div class="card-label">300% Strategy</div><div class="pill pill-teal">P&amp;L curve</div></div>
+            <div class="chart-box"><canvas id="chart-300"></canvas></div>
           </div>
-          <div class="chart-card">
-            <div class="card-header"><div class="card-title">P&amp;L by Symbol</div><span class="cbadge slate">Bar</span></div>
-            <div class="chart-area"><canvas id="chart-symbol"></canvas></div>
+          <div class="glass-card">
+            <div class="card-top"><div class="card-label">P&amp;L by Symbol</div><div class="pill pill-slate">Bar chart</div></div>
+            <div class="chart-box"><canvas id="chart-sym"></canvas></div>
           </div>
-          <div class="chart-card">
-            <div class="card-header"><div class="card-title">Drawdown Timeline</div><span class="cbadge amber">Both strategies</span></div>
-            <div class="chart-area"><canvas id="chart-dd"></canvas></div>
+          <div class="glass-card">
+            <div class="card-top"><div class="card-label">Drawdown Timeline</div><div class="pill pill-orange">Both strategies</div></div>
+            <div class="chart-box"><canvas id="chart-dd"></canvas></div>
           </div>
         </div>
       </div>
 
-    </main>
+    </div><!-- /pages -->
 
+    <!-- BOTTOM NAV (mobile) -->
     <nav id="bottom-nav">
-      <button class="bn active" data-page="dashboard" onclick="switchPage('dashboard')">
-        <svg width="19" height="19" viewBox="0 0 15 15" fill="none"><rect x="1" y="1" width="5.5" height="5.5" rx="1.5" fill="currentColor"/><rect x="8.5" y="1" width="5.5" height="5.5" rx="1.5" fill="currentColor"/><rect x="1" y="8.5" width="5.5" height="5.5" rx="1.5" fill="currentColor"/><rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1.5" fill="currentColor"/></svg>
+      <button class="bnav active" data-page="dashboard" onclick="nav('dashboard')">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="2" width="7" height="7" rx="2" fill="currentColor"/><rect x="11" y="2" width="7" height="7" rx="2" fill="currentColor"/><rect x="2" y="11" width="7" height="7" rx="2" fill="currentColor"/><rect x="11" y="11" width="7" height="7" rx="2" fill="currentColor"/></svg>
         <span>Dash</span>
       </button>
-      <button class="bn" data-page="all" onclick="switchPage('all')">
-        <svg width="19" height="19" viewBox="0 0 15 15" fill="none"><rect x="1" y="2" width="13" height="2" rx="1" fill="currentColor"/><rect x="1" y="6.5" width="13" height="2" rx="1" fill="currentColor"/><rect x="1" y="11" width="13" height="2" rx="1" fill="currentColor"/></svg>
+      <button class="bnav" data-page="all" onclick="nav('all')">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="4" width="16" height="2.5" rx="1.25" fill="currentColor"/><rect x="2" y="8.75" width="16" height="2.5" rx="1.25" fill="currentColor"/><rect x="2" y="13.5" width="16" height="2.5" rx="1.25" fill="currentColor"/></svg>
         <span>Trades</span>
       </button>
-      <button class="bn" onclick="openSheet()">
-        <div class="bn-add"><svg width="17" height="17" viewBox="0 0 14 14" fill="none"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></div>
+      <button class="bnav bnav-add" onclick="openModal()">
+        <div class="bnav-add-circle">
+          <svg width="22" height="22" viewBox="0 0 14 14" fill="none"><line x1="7" y1="1" x2="7" y2="13" stroke="white" stroke-width="2.5" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="white" stroke-width="2.5" stroke-linecap="round"/></svg>
+        </div>
         <span>Add</span>
       </button>
-      <button class="bn" data-page="s200" onclick="switchPage('s200')">
-        <svg width="19" height="19" viewBox="0 0 15 15" fill="none"><polyline points="1,13 5,7 9,9 14,2" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+      <button class="bnav" data-page="s200" onclick="nav('s200')">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><polyline points="2,16 7,8 12,11 18,3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span>200%</span>
       </button>
-      <button class="bn" data-page="charts" onclick="switchPage('charts')">
-        <svg width="19" height="19" viewBox="0 0 15 15" fill="none"><rect x="1" y="8" width="3" height="6" rx="1" fill="currentColor"/><rect x="6" y="5" width="3" height="9" rx="1" fill="currentColor"/><rect x="11" y="1" width="3" height="13" rx="1" fill="currentColor"/></svg>
+      <button class="bnav" data-page="charts" onclick="nav('charts')">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="11" width="4" height="7" rx="1.5" fill="currentColor"/><rect x="8" y="7" width="4" height="11" rx="1.5" fill="currentColor"/><rect x="14" y="2" width="4" height="16" rx="1.5" fill="currentColor"/></svg>
         <span>Charts</span>
       </button>
     </nav>
-  </div>
-</div>
+  </div><!-- /main -->
+</div><!-- /app -->
 
-<div id="overlay" onclick="closeSheet()"></div>
-<div id="mob-sb-overlay" onclick="toggleSidebar()"></div>
-
-<div id="sheet">
-  <div class="sheet-drag"></div>
-  <div class="sheet-top">
-    <div class="sheet-title">
-      <svg width="15" height="15" viewBox="0 0 14 14" fill="none"><line x1="7" y1="1" x2="7" y2="13" stroke="#6ee7b7" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="#6ee7b7" stroke-width="2" stroke-linecap="round"/></svg>
+<!-- ADD TRADE MODAL -->
+<div id="modal-backdrop" onclick="closeModal()"></div>
+<div id="modal">
+  <div class="modal-header">
+    <div class="modal-title">
+      <div class="modal-icon">
+        <svg width="16" height="16" viewBox="0 0 14 14" fill="none"><line x1="7" y1="1" x2="7" y2="13" stroke="white" stroke-width="2.5" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="white" stroke-width="2.5" stroke-linecap="round"/></svg>
+      </div>
       New Trade
     </div>
-    <button class="sheet-x" onclick="closeSheet()">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="2" y1="2" x2="12" y2="12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="12" y1="2" x2="2" y2="12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    <button class="modal-close" id="modal-close-btn" onclick="closeModal()">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><line x1="2" y1="2" x2="14" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="14" y1="2" x2="2" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     </button>
   </div>
-  <div class="sheet-body">
-    <div class="form-2col">
-      <div class="ff"><label>Date</label><input type="date" id="f-date"></div>
-      <div class="ff"><label>Strategy</label><select id="f-strat"><option value="200">200% Strategy</option><option value="300">300% Strategy</option></select></div>
+  <div class="modal-body">
+    <div class="mform-row">
+      <div class="mfield"><label>Date</label><input type="date" id="f-date"></div>
+      <div class="mfield"><label>Strategy</label>
+        <select id="f-strat"><option value="200">200% Strategy</option><option value="300">300% Strategy</option></select>
+      </div>
     </div>
-    <div class="form-2col">
-      <div class="ff"><label>Symbol</label><select id="f-symbol"><option>NIFTY</option><option>BANKNIFTY</option><option>FINNIFTY</option><option>MIDCPNIFTY</option><option>SENSEX</option><option>BANKEX</option><option>OTHER</option></select></div>
-      <div class="ff"><label>Lots</label><input type="number" id="f-lots" placeholder="e.g. 2" min="0.1" step="0.1"></div>
+    <div class="mform-row">
+      <div class="mfield"><label>Symbol</label>
+        <select id="f-symbol"><option>NIFTY</option><option>BANKNIFTY</option><option>FINNIFTY</option><option>MIDCPNIFTY</option><option>SENSEX</option><option>BANKEX</option><option>OTHER</option></select>
+      </div>
+      <div class="mfield"><label>Lots</label><input type="number" id="f-lots" placeholder="e.g. 2" min="0.1" step="0.1"></div>
     </div>
-    <div class="form-2col">
-      <div class="ff"><label>Gross P&amp;L (₹)</label><input type="number" id="f-pnl" placeholder="e.g. −1500"></div>
-      <div class="ff"><label>Taxes (₹)</label><input type="number" id="f-tax" placeholder="e.g. 68" min="0"></div>
+    <div class="mform-row">
+      <div class="mfield"><label>Gross P&amp;L (₹)</label><input type="number" id="f-pnl" placeholder="e.g. −1500"></div>
+      <div class="mfield"><label>Taxes (₹)</label><input type="number" id="f-tax" placeholder="e.g. 68" min="0"></div>
     </div>
-    <div class="ff"><label>Notes <em>(optional)</em></label><input type="text" id="f-notes" placeholder="anything…"></div>
-    <div class="sheet-actions">
-      <button class="ghost-btn" onclick="clearForm()">Clear</button>
-      <button class="primary-btn" onclick="addTrade()">Add Trade</button>
+    <div class="mfield"><label>Notes <em>(optional)</em></label><input type="text" id="f-notes" placeholder="anything…"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="clearForm()">Clear</button>
+      <button class="btn-primary" onclick="addTrade()">Add Trade</button>
     </div>
   </div>
 </div>
