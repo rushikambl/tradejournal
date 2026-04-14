@@ -5,10 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="theme-color" content="#f0f2ff">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0a0a">
 <title>TradeJournal</title>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- Geist font by Vercel — clean, modern, professional -->
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -16,200 +17,183 @@
 
 <!-- SPLASH -->
 <div id="splash">
-  <div class="splash-logo">
-    <div class="splash-icon">
-      <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-        <path d="M4 24 L10 14 L16 18 L24 6 L28 10" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="28" cy="10" r="3" fill="white"/>
+  <div class="sp-inner">
+    <div class="sp-logo">
+      <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+        <rect width="36" height="36" rx="10" fill="#f97316"/>
+        <polyline points="6,28 12,16 19,21 27,8 31,13" stroke="white" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="31" cy="13" r="2.8" fill="white"/>
       </svg>
+      <span>TradeJournal</span>
     </div>
-    <span>TradeJournal</span>
-  </div>
-  <div class="splash-dots">
-    <div class="sdot"></div><div class="sdot"></div><div class="sdot"></div>
+    <div class="sp-bar"><div class="sp-bar-fill" id="sp-bar"></div></div>
   </div>
 </div>
 
 <!-- APP -->
 <div id="app" class="hidden">
 
-  <!-- DRAWER OVERLAY -->
-  <div id="drawer-overlay" onclick="closeDrawer()"></div>
+  <!-- DRAWER BACKDROP -->
+  <div id="drawer-bd" onclick="closeDrawer()"></div>
 
-  <!-- DRAWER (mobile) / SIDEBAR (desktop) -->
-  <aside id="drawer">
-    <div class="drawer-header">
-      <div class="drawer-logo">
-        <div class="drawer-icon">
-          <svg width="18" height="18" viewBox="0 0 32 32" fill="none">
-            <path d="M4 24 L10 14 L16 18 L24 6 L28 10" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </div>
+  <!-- SIDEBAR / DRAWER -->
+  <aside id="sidebar">
+    <div class="sb-head">
+      <div class="sb-logo">
+        <svg width="28" height="28" viewBox="0 0 36 36" fill="none">
+          <rect width="36" height="36" rx="10" fill="#f97316"/>
+          <polyline points="6,28 12,16 19,21 27,8 31,13" stroke="white" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
         <span>TradeJournal</span>
       </div>
-      <button class="drawer-close" onclick="closeDrawer()">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><line x1="2" y1="2" x2="16" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="2" x2="2" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <button class="sb-close" onclick="closeDrawer()">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><line x1="2" y1="2" x2="14" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="14" y1="2" x2="2" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       </button>
     </div>
 
-    <nav class="drawer-nav">
-      <div class="nav-group-label">Overview</div>
-      <button class="nav-item active" data-page="dashboard" onclick="nav('dashboard')">
-        <span class="nav-icon">⬛</span>Dashboard
+    <nav class="sb-nav">
+      <div class="sb-grp">Overview</div>
+      <button class="sb-item active" data-page="dashboard" onclick="goPage('dashboard')">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="1" y="1" width="5.5" height="5.5" rx="1.5" fill="currentColor"/><rect x="8.5" y="1" width="5.5" height="5.5" rx="1.5" fill="currentColor"/><rect x="1" y="8.5" width="5.5" height="5.5" rx="1.5" fill="currentColor"/><rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1.5" fill="currentColor"/></svg>
+        Dashboard
       </button>
-      <button class="nav-item" data-page="all" onclick="nav('all')">
-        <span class="nav-icon">📋</span>All Trades
-      </button>
-
-      <div class="nav-group-label">Strategies</div>
-      <button class="nav-item" data-page="s200" onclick="nav('s200')">
-        <span class="nav-icon">📈</span>200% Strategy
-      </button>
-      <button class="nav-item" data-page="s300" onclick="nav('s300')">
-        <span class="nav-icon">📊</span>300% Strategy
+      <button class="sb-item" data-page="all" onclick="goPage('all')">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="1" y="2.5" width="13" height="1.8" rx=".9" fill="currentColor"/><rect x="1" y="6.6" width="13" height="1.8" rx=".9" fill="currentColor"/><rect x="1" y="10.7" width="13" height="1.8" rx=".9" fill="currentColor"/></svg>
+        All Trades
       </button>
 
-      <div class="nav-group-label">Analytics</div>
-      <button class="nav-item" data-page="charts" onclick="nav('charts')">
-        <span class="nav-icon">✦</span>Charts
+      <div class="sb-grp">Strategies</div>
+      <button class="sb-item" data-page="s200" onclick="goPage('s200')">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><polyline points="1,13 4.5,7.5 8.5,9.5 14,2" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        200% Strategy
+      </button>
+      <button class="sb-item" data-page="s300" onclick="goPage('s300')">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><polyline points="1,13 4.5,7.5 8.5,9.5 14,2" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        300% Strategy
+      </button>
+
+      <div class="sb-grp">Analytics</div>
+      <button class="sb-item" data-page="charts" onclick="goPage('charts')">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="1" y="9" width="3" height="5" rx="1" fill="currentColor"/><rect x="6" y="6" width="3" height="8" rx="1" fill="currentColor"/><rect x="11" y="2" width="3" height="12" rx="1" fill="currentColor"/></svg>
+        Charts
       </button>
     </nav>
 
-    <div class="drawer-footer">
-      <div class="threshold-block">
-        <div class="threshold-label">Delta Alert Threshold</div>
-        <div class="threshold-input-row">
-          <input type="number" id="dd-threshold" value="1000" min="100" step="100" placeholder="1000">
-          <button onclick="applyThreshold()">Set</button>
-        </div>
-        <div class="threshold-hint">₹<span id="threshold-display">1,000</span> / lot</div>
+    <div class="sb-foot">
+      <div class="thr-label">
+        <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><circle cx="5.5" cy="5.5" r="4.5" stroke="#f97316" stroke-width="1.2"/><line x1="5.5" y1="3.5" x2="5.5" y2="5.8" stroke="#f97316" stroke-width="1.2" stroke-linecap="round"/><circle cx="5.5" cy="7.5" r=".7" fill="#f97316"/></svg>
+        Delta Threshold
       </div>
+      <div class="thr-row">
+        <input type="number" id="dd-threshold" value="1000" min="100" step="100">
+        <button onclick="applyThreshold()">Set</button>
+      </div>
+      <div class="thr-hint">₹<span id="threshold-display">1,000</span> / lot</div>
+      <button class="sb-add" onclick="openModal()">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><line x1="6.5" y1="1" x2="6.5" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="6.5" x2="12" y2="6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        Add Trade
+      </button>
     </div>
   </aside>
 
   <!-- MAIN -->
   <div id="main">
-
     <!-- TOPBAR -->
     <header id="topbar">
-      <button class="menu-btn" onclick="openDrawer()">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <rect x="2" y="5" width="16" height="2" rx="1" fill="currentColor"/>
-          <rect x="2" y="9" width="16" height="2" rx="1" fill="currentColor"/>
-          <rect x="2" y="13" width="16" height="2" rx="1" fill="currentColor"/>
-        </svg>
+      <button class="tb-menu" onclick="openDrawer()">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="4" width="14" height="1.8" rx=".9" fill="currentColor"/><rect x="2" y="8.1" width="14" height="1.8" rx=".9" fill="currentColor"/><rect x="2" y="12.2" width="14" height="1.8" rx=".9" fill="currentColor"/></svg>
       </button>
-      <div class="topbar-logo">
-        <div class="topbar-icon">
-          <svg width="14" height="14" viewBox="0 0 32 32" fill="none">
-            <path d="M4 24 L10 14 L16 18 L24 6 L28 10" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </div>
+      <div class="tb-logo">
+        <svg width="22" height="22" viewBox="0 0 36 36" fill="none">
+          <rect width="36" height="36" rx="10" fill="#f97316"/>
+          <polyline points="6,28 12,16 19,21 27,8 31,13" stroke="white" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
         TradeJournal
       </div>
-      <div class="topbar-right">
-        <div class="live-badge" id="live-badge">
-          <div class="live-dot" id="live-dot"></div>
-          <span id="live-label">Live</span>
+      <div class="tb-right">
+        <div class="sync-pill" id="sync-pill">
+          <div class="sync-dot" id="sync-dot"></div>
+          <span id="sync-lbl">Live</span>
         </div>
-        <button class="add-btn-top" onclick="openModal()">+ Add</button>
+        <button class="tb-add" onclick="openModal()">+ Add Trade</button>
       </div>
     </header>
 
-    <!-- PAGES -->
-    <div id="pages">
+    <!-- CONTENT -->
+    <div id="content">
 
       <!-- DASHBOARD -->
       <div class="page active" id="page-dashboard">
-        <div class="page-hero">
-          <div class="page-hero-left">
-            <div class="page-greeting">Good trading 👋</div>
-            <div class="page-title" id="dash-net-title">—</div>
-            <div class="page-sub">Net P&L across all strategies</div>
+        <div class="pg-banner">
+          <div class="pg-banner-left">
+            <div class="pg-eyebrow">Portfolio Overview</div>
+            <div class="pg-hero-num" id="dash-hero">—</div>
+            <div class="pg-hero-sub">Total net P&amp;L across all strategies</div>
           </div>
-          <div class="page-hero-right">
-            <button class="hero-add-btn" onclick="openModal()">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
-              Add Trade
-            </button>
-          </div>
+          <button class="banner-btn" onclick="openModal()">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><line x1="6.5" y1="1" x2="6.5" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="6.5" x2="12" y2="6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            New Trade
+          </button>
         </div>
-
-        <div class="kpi-row" id="kpi-dash"></div>
-
-        <div class="dash-layout">
-          <div class="dash-left">
-            <div class="glass-card">
-              <div class="card-top">
-                <div class="card-label">Combined P&L</div>
-                <div class="pill pill-purple">Cumulative</div>
-              </div>
-              <div class="chart-box tall"><canvas id="chart-dash-main"></canvas></div>
-            </div>
+        <div class="kpi-grid" id="kpi-dash"></div>
+        <div class="dash-grid">
+          <div class="card span2" id="dash-main-card">
+            <div class="card-hd"><span class="card-lbl">Combined P&amp;L</span><span class="tag tag-orange">Cumulative</span></div>
+            <div class="chart-wrap h260"><canvas id="ch-dash"></canvas></div>
           </div>
-          <div class="dash-right">
-            <div class="glass-card">
-              <div class="card-top">
-                <div class="card-label">By Symbol</div>
-                <div class="pill pill-blue">Breakdown</div>
-              </div>
-              <div class="chart-box"><canvas id="chart-dash-sym"></canvas></div>
-            </div>
-            <div class="glass-card">
-              <div class="card-top">
-                <div class="card-label">Recent Trades</div>
-                <div class="pill pill-slate" id="recent-pill">—</div>
-              </div>
-              <div id="recent-list"></div>
-            </div>
+          <div class="card">
+            <div class="card-hd"><span class="card-lbl">By Symbol</span><span class="tag tag-gray">Breakdown</span></div>
+            <div class="chart-wrap"><canvas id="ch-sym-dash"></canvas></div>
+          </div>
+          <div class="card">
+            <div class="card-hd"><span class="card-lbl">Recent Trades</span><span class="tag tag-gray" id="recent-tag">—</span></div>
+            <div id="recent-list"></div>
           </div>
         </div>
       </div>
 
       <!-- ALL TRADES -->
       <div class="page" id="page-all">
-        <div class="page-hero flat">
-          <div class="page-title sm">All Trades</div>
-          <div class="page-sub" id="all-sub">—</div>
+        <div class="pg-head">
+          <div class="pg-title">All Trades</div>
+          <div class="pg-sub" id="all-sub">—</div>
         </div>
-        <div class="filter-strip">
-          <div class="chip-group">
-            <button class="fchip active" data-key="strat" data-val="" onclick="setF('strat','')">All</button>
-            <button class="fchip" data-key="strat" data-val="200" onclick="setF('strat','200')">200%</button>
-            <button class="fchip" data-key="strat" data-val="300" onclick="setF('strat','300')">300%</button>
+        <div class="filter-bar">
+          <div class="chip-set">
+            <button class="chip on" data-key="strat" data-val="" onclick="setF('strat','')">All</button>
+            <button class="chip" data-key="strat" data-val="200" onclick="setF('strat','200')">200%</button>
+            <button class="chip" data-key="strat" data-val="300" onclick="setF('strat','300')">300%</button>
           </div>
-          <div class="chip-group">
-            <button class="fchip" data-key="result" data-val="profit" onclick="setF('result','profit')">Profits</button>
-            <button class="fchip" data-key="result" data-val="loss" onclick="setF('result','loss')">Losses</button>
-            <button class="fchip" data-key="result" data-val="alert" onclick="setF('result','alert')">Alerts</button>
+          <div class="chip-set">
+            <button class="chip" data-key="result" data-val="profit" onclick="setF('result','profit')">Profits</button>
+            <button class="chip" data-key="result" data-val="loss" onclick="setF('result','loss')">Losses</button>
+            <button class="chip" data-key="result" data-val="alert" onclick="setF('result','alert')">Alerts</button>
           </div>
           <select class="fsel" id="fil-symbol" onchange="renderAllTrades()"><option value="">All Symbols</option><option>NIFTY</option><option>BANKNIFTY</option><option>FINNIFTY</option><option>MIDCPNIFTY</option><option>SENSEX</option><option>BANKEX</option><option>OTHER</option></select>
           <select class="fsel" id="fil-from" onchange="renderAllTrades()"><option value="">From…</option></select>
           <select class="fsel" id="fil-to" onchange="renderAllTrades()"><option value="">To…</option></select>
-          <div style="flex:1"></div>
-          <button class="action-btn" onclick="clearFilters()">Clear</button>
-          <button class="action-btn" onclick="exportCSV()">Export</button>
-          <button class="action-btn danger" onclick="clearAllTrades()">Clear All</button>
+          <div class="f-spacer"></div>
+          <button class="f-btn" onclick="clearFilters()">Clear</button>
+          <button class="f-btn" onclick="exportCSV()">Export CSV</button>
+          <button class="f-btn f-danger" onclick="clearAllTrades()">Clear All</button>
         </div>
-        <div class="tbl-wrap">
+        <div class="tbl-card">
           <table>
             <thead><tr>
-              <th>#</th><th class="sort" onclick="sortBy('date')" id="th-date">Date</th>
+              <th class="tc">#</th>
+              <th class="th-sort" onclick="sortBy('date')" id="th-date">Date</th>
               <th>Strategy</th><th>Symbol</th>
-              <th class="sort" onclick="sortBy('lots')" id="th-lots">Lots</th>
-              <th class="sort" onclick="sortBy('pnl')" id="th-pnl">Gross P&amp;L</th>
+              <th class="th-sort" onclick="sortBy('lots')" id="th-lots">Lots</th>
+              <th class="th-sort" onclick="sortBy('pnl')" id="th-pnl">Gross P&amp;L</th>
               <th>Taxes</th>
-              <th class="sort" onclick="sortBy('net')" id="th-net">Net P&amp;L</th>
+              <th class="th-sort" onclick="sortBy('net')" id="th-net">Net P&amp;L</th>
               <th>Drawdown</th><th>DD/Lot</th><th>Notes</th><th></th>
             </tr></thead>
             <tbody id="tbody-all"></tbody>
           </table>
         </div>
-        <div class="section-row">
-          <span class="section-lbl">Symbol Breakdown</span>
-          <span class="count-tag" id="sym-count">—</span>
-        </div>
-        <div class="tbl-wrap">
+        <div class="sec-row"><span class="sec-lbl">Symbol Breakdown</span><span class="count-tag" id="sym-count">—</span></div>
+        <div class="tbl-card">
           <table>
             <thead><tr><th>Symbol</th><th>Trades</th><th>Gross P&amp;L</th><th>Taxes</th><th>Net P&amp;L</th><th>Wins</th><th>Losses</th><th>Win Rate</th></tr></thead>
             <tbody id="tbody-sym"></tbody>
@@ -217,129 +201,121 @@
         </div>
       </div>
 
-      <!-- 200% STRATEGY -->
+      <!-- 200% -->
       <div class="page" id="page-s200">
-        <div class="page-hero flat">
-          <div class="page-title sm">200% Strategy</div>
-          <div class="page-sub">Peak-based drawdown · Continuous</div>
+        <div class="pg-head">
+          <div class="pg-title">200% Strategy</div>
+          <div class="pg-sub">Peak-based drawdown · Continuous · Never resets</div>
         </div>
-        <div class="kpi-row" id="kpi-200"></div>
-        <div class="tbl-wrap">
-          <table>
-            <thead><tr><th>#</th><th>Date</th><th>Symbol</th><th>Lots</th><th>Gross P&amp;L</th><th>Taxes</th><th>Net P&amp;L</th><th>Running P&amp;L</th><th>Peak P&amp;L</th><th>Drawdown</th><th>DD/Lot</th><th>Notes</th></tr></thead>
-            <tbody id="tbody-200"></tbody>
-          </table>
+        <div class="kpi-grid" id="kpi-200"></div>
+        <div class="tbl-card">
+          <table><thead><tr><th class="tc">#</th><th>Date</th><th>Symbol</th><th>Lots</th><th>Gross P&amp;L</th><th>Taxes</th><th>Net P&amp;L</th><th>Running P&amp;L</th><th>Peak P&amp;L</th><th>Drawdown</th><th>DD/Lot</th><th>Notes</th></tr></thead><tbody id="tbody-200"></tbody></table>
         </div>
       </div>
 
-      <!-- 300% STRATEGY -->
+      <!-- 300% -->
       <div class="page" id="page-s300">
-        <div class="page-hero flat">
-          <div class="page-title sm">300% Strategy</div>
-          <div class="page-sub">Peak-based drawdown · Continuous</div>
+        <div class="pg-head">
+          <div class="pg-title">300% Strategy</div>
+          <div class="pg-sub">Peak-based drawdown · Continuous · Never resets</div>
         </div>
-        <div class="kpi-row" id="kpi-300"></div>
-        <div class="tbl-wrap">
-          <table>
-            <thead><tr><th>#</th><th>Date</th><th>Symbol</th><th>Lots</th><th>Gross P&amp;L</th><th>Taxes</th><th>Net P&amp;L</th><th>Running P&amp;L</th><th>Peak P&amp;L</th><th>Drawdown</th><th>DD/Lot</th><th>Notes</th></tr></thead>
-            <tbody id="tbody-300"></tbody>
-          </table>
+        <div class="kpi-grid" id="kpi-300"></div>
+        <div class="tbl-card">
+          <table><thead><tr><th class="tc">#</th><th>Date</th><th>Symbol</th><th>Lots</th><th>Gross P&amp;L</th><th>Taxes</th><th>Net P&amp;L</th><th>Running P&amp;L</th><th>Peak P&amp;L</th><th>Drawdown</th><th>DD/Lot</th><th>Notes</th></tr></thead><tbody id="tbody-300"></tbody></table>
         </div>
       </div>
 
       <!-- CHARTS -->
       <div class="page" id="page-charts">
-        <div class="page-hero flat">
-          <div class="page-title sm">Analytics</div>
-          <div class="page-sub">Performance charts across all strategies</div>
+        <div class="pg-head">
+          <div class="pg-title">Analytics</div>
+          <div class="pg-sub">Performance breakdown across both strategies</div>
         </div>
         <div class="charts-grid">
-          <div class="glass-card span2">
-            <div class="card-top"><div class="card-label">Combined Net P&amp;L</div><div class="pill pill-purple">Both strategies</div></div>
-            <div class="chart-box tall"><canvas id="chart-combined"></canvas></div>
+          <div class="card span2">
+            <div class="card-hd"><span class="card-lbl">Combined Net P&amp;L</span><span class="tag tag-orange">Both strategies</span></div>
+            <div class="chart-wrap h260"><canvas id="ch-combined"></canvas></div>
           </div>
-          <div class="glass-card">
-            <div class="card-top"><div class="card-label">200% Strategy</div><div class="pill pill-blue">P&amp;L curve</div></div>
-            <div class="chart-box"><canvas id="chart-200"></canvas></div>
+          <div class="card">
+            <div class="card-hd"><span class="card-lbl">200% Strategy</span><span class="tag tag-gray">P&amp;L curve</span></div>
+            <div class="chart-wrap"><canvas id="ch-200"></canvas></div>
           </div>
-          <div class="glass-card">
-            <div class="card-top"><div class="card-label">300% Strategy</div><div class="pill pill-teal">P&amp;L curve</div></div>
-            <div class="chart-box"><canvas id="chart-300"></canvas></div>
+          <div class="card">
+            <div class="card-hd"><span class="card-lbl">300% Strategy</span><span class="tag tag-gray">P&amp;L curve</span></div>
+            <div class="chart-wrap"><canvas id="ch-300"></canvas></div>
           </div>
-          <div class="glass-card">
-            <div class="card-top"><div class="card-label">P&amp;L by Symbol</div><div class="pill pill-slate">Bar chart</div></div>
-            <div class="chart-box"><canvas id="chart-sym"></canvas></div>
+          <div class="card">
+            <div class="card-hd"><span class="card-lbl">P&amp;L by Symbol</span><span class="tag tag-gray">Bar chart</span></div>
+            <div class="chart-wrap"><canvas id="ch-sym"></canvas></div>
           </div>
-          <div class="glass-card">
-            <div class="card-top"><div class="card-label">Drawdown Timeline</div><div class="pill pill-orange">Both strategies</div></div>
-            <div class="chart-box"><canvas id="chart-dd"></canvas></div>
+          <div class="card">
+            <div class="card-hd"><span class="card-lbl">Drawdown Timeline</span><span class="tag tag-orange">Both strategies</span></div>
+            <div class="chart-wrap"><canvas id="ch-dd"></canvas></div>
           </div>
         </div>
       </div>
 
-    </div><!-- /pages -->
+    </div><!-- /content -->
 
-    <!-- BOTTOM NAV (mobile) -->
-    <nav id="bottom-nav">
-      <button class="bnav active" data-page="dashboard" onclick="nav('dashboard')">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="2" width="7" height="7" rx="2" fill="currentColor"/><rect x="11" y="2" width="7" height="7" rx="2" fill="currentColor"/><rect x="2" y="11" width="7" height="7" rx="2" fill="currentColor"/><rect x="11" y="11" width="7" height="7" rx="2" fill="currentColor"/></svg>
+    <!-- BOTTOM NAV -->
+    <nav id="bnav">
+      <button class="bn active" data-page="dashboard" onclick="goPage('dashboard')">
+        <svg width="20" height="20" viewBox="0 0 15 15" fill="none"><rect x="1" y="1" width="5.5" height="5.5" rx="1.5" fill="currentColor"/><rect x="8.5" y="1" width="5.5" height="5.5" rx="1.5" fill="currentColor"/><rect x="1" y="8.5" width="5.5" height="5.5" rx="1.5" fill="currentColor"/><rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1.5" fill="currentColor"/></svg>
         <span>Dash</span>
       </button>
-      <button class="bnav" data-page="all" onclick="nav('all')">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="4" width="16" height="2.5" rx="1.25" fill="currentColor"/><rect x="2" y="8.75" width="16" height="2.5" rx="1.25" fill="currentColor"/><rect x="2" y="13.5" width="16" height="2.5" rx="1.25" fill="currentColor"/></svg>
+      <button class="bn" data-page="all" onclick="goPage('all')">
+        <svg width="20" height="20" viewBox="0 0 15 15" fill="none"><rect x="1" y="2.5" width="13" height="1.8" rx=".9" fill="currentColor"/><rect x="1" y="6.6" width="13" height="1.8" rx=".9" fill="currentColor"/><rect x="1" y="10.7" width="13" height="1.8" rx=".9" fill="currentColor"/></svg>
         <span>Trades</span>
       </button>
-      <button class="bnav bnav-add" onclick="openModal()">
-        <div class="bnav-add-circle">
-          <svg width="22" height="22" viewBox="0 0 14 14" fill="none"><line x1="7" y1="1" x2="7" y2="13" stroke="white" stroke-width="2.5" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="white" stroke-width="2.5" stroke-linecap="round"/></svg>
+      <button class="bn bn-add" onclick="openModal()">
+        <div class="bn-circle">
+          <svg width="20" height="20" viewBox="0 0 13 13" fill="none"><line x1="6.5" y1="1" x2="6.5" y2="12" stroke="white" stroke-width="2.2" stroke-linecap="round"/><line x1="1" y1="6.5" x2="12" y2="6.5" stroke="white" stroke-width="2.2" stroke-linecap="round"/></svg>
         </div>
         <span>Add</span>
       </button>
-      <button class="bnav" data-page="s200" onclick="nav('s200')">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><polyline points="2,16 7,8 12,11 18,3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <button class="bn" data-page="s200" onclick="goPage('s200')">
+        <svg width="20" height="20" viewBox="0 0 15 15" fill="none"><polyline points="1,13 4.5,7.5 8.5,9.5 14,2" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span>200%</span>
       </button>
-      <button class="bnav" data-page="charts" onclick="nav('charts')">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="11" width="4" height="7" rx="1.5" fill="currentColor"/><rect x="8" y="7" width="4" height="11" rx="1.5" fill="currentColor"/><rect x="14" y="2" width="4" height="16" rx="1.5" fill="currentColor"/></svg>
+      <button class="bn" data-page="charts" onclick="goPage('charts')">
+        <svg width="20" height="20" viewBox="0 0 15 15" fill="none"><rect x="1" y="9" width="3" height="5" rx="1" fill="currentColor"/><rect x="6" y="6" width="3" height="8" rx="1" fill="currentColor"/><rect x="11" y="2" width="3" height="12" rx="1" fill="currentColor"/></svg>
         <span>Charts</span>
       </button>
     </nav>
   </div><!-- /main -->
 </div><!-- /app -->
 
+<!-- MODAL BACKDROP -->
+<div id="modal-bd" onclick="closeModal()"></div>
+
 <!-- ADD TRADE MODAL -->
-<div id="modal-backdrop" onclick="closeModal()"></div>
 <div id="modal">
-  <div class="modal-header">
+  <div class="modal-hd">
     <div class="modal-title">
       <div class="modal-icon">
-        <svg width="16" height="16" viewBox="0 0 14 14" fill="none"><line x1="7" y1="1" x2="7" y2="13" stroke="white" stroke-width="2.5" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="white" stroke-width="2.5" stroke-linecap="round"/></svg>
+        <svg width="14" height="14" viewBox="0 0 13 13" fill="none"><line x1="6.5" y1="1" x2="6.5" y2="12" stroke="white" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="6.5" x2="12" y2="6.5" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>
       </div>
       New Trade
     </div>
-    <button class="modal-close" id="modal-close-btn" onclick="closeModal()">
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><line x1="2" y1="2" x2="14" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="14" y1="2" x2="2" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <button class="modal-x" onclick="closeModal()">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="2" y1="2" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="2" x2="2" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     </button>
   </div>
   <div class="modal-body">
-    <div class="mform-row">
-      <div class="mfield"><label>Date</label><input type="date" id="f-date"></div>
-      <div class="mfield"><label>Strategy</label>
-        <select id="f-strat"><option value="200">200% Strategy</option><option value="300">300% Strategy</option></select>
-      </div>
+    <div class="mrow">
+      <div class="mf"><label>Date</label><input type="date" id="f-date"></div>
+      <div class="mf"><label>Strategy</label><select id="f-strat"><option value="200">200% Strategy</option><option value="300">300% Strategy</option></select></div>
     </div>
-    <div class="mform-row">
-      <div class="mfield"><label>Symbol</label>
-        <select id="f-symbol"><option>NIFTY</option><option>BANKNIFTY</option><option>FINNIFTY</option><option>MIDCPNIFTY</option><option>SENSEX</option><option>BANKEX</option><option>OTHER</option></select>
-      </div>
-      <div class="mfield"><label>Lots</label><input type="number" id="f-lots" placeholder="e.g. 2" min="0.1" step="0.1"></div>
+    <div class="mrow">
+      <div class="mf"><label>Symbol</label><select id="f-symbol"><option>NIFTY</option><option>BANKNIFTY</option><option>FINNIFTY</option><option>MIDCPNIFTY</option><option>SENSEX</option><option>BANKEX</option><option>OTHER</option></select></div>
+      <div class="mf"><label>Lots</label><input type="number" id="f-lots" placeholder="e.g. 2" min="0.1" step="0.1"></div>
     </div>
-    <div class="mform-row">
-      <div class="mfield"><label>Gross P&amp;L (₹)</label><input type="number" id="f-pnl" placeholder="e.g. −1500"></div>
-      <div class="mfield"><label>Taxes (₹)</label><input type="number" id="f-tax" placeholder="e.g. 68" min="0"></div>
+    <div class="mrow">
+      <div class="mf"><label>Gross P&amp;L (₹)</label><input type="number" id="f-pnl" placeholder="e.g. −1500"></div>
+      <div class="mf"><label>Taxes (₹)</label><input type="number" id="f-tax" placeholder="e.g. 68" min="0"></div>
     </div>
-    <div class="mfield"><label>Notes <em>(optional)</em></label><input type="text" id="f-notes" placeholder="anything…"></div>
-    <div class="modal-actions">
+    <div class="mf"><label>Notes <em>(optional)</em></label><input type="text" id="f-notes" placeholder="anything…"></div>
+    <div class="modal-ft">
       <button class="btn-ghost" onclick="clearForm()">Clear</button>
       <button class="btn-primary" onclick="addTrade()">Add Trade</button>
     </div>

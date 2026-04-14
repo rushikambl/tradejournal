@@ -43,12 +43,12 @@ function showApp() {
 }
 
 function setSyncState(state) {
-  const badge = document.getElementById('live-badge');
-  const dot = document.getElementById('live-dot');
-  const lbl = document.getElementById('live-label');
+  const badge = document.getElementById('sync-pill');
+  const dot = document.getElementById('sync-dot');
+  const lbl = document.getElementById('sync-lbl');
   if (!badge) return;
-  badge.className = 'live-badge' + (state !== 'live' ? ' ' + state : '');
-  dot.className = 'live-dot' + (state === 'live' ? ' pulse' : '');
+  badge.className = 'sync-pill' + (state === 'syncing' ? ' syncing' : state === 'error' ? ' error' : '');
+  dot.className = 'sync-dot' + (state === 'live' ? ' pulse' : '');
   lbl.textContent = state === 'live' ? 'Live' : state === 'syncing' ? 'Syncing' : 'Error';
 }
 
@@ -56,7 +56,7 @@ function setSyncState(state) {
 function fmt(n) { return Math.abs(n).toLocaleString('en-IN', { maximumFractionDigits: 2, minimumFractionDigits: 0 }); }
 function inr(n) { return '₹' + fmt(n); }
 function sig(n) { return (n >= 0 ? '+' : '−') + inr(Math.abs(n)); }
-function pc(n) { return n > 0 ? 'val-pos' : n < 0 ? 'val-neg' : 'val-neu'; }
+function pc(n) { return n > 0 ? 'vpos' : n < 0 ? 'vneg' : 'vneu'; }
 
 // ── DD Engine ──────────────────────────────────────────────────────────────
 function computeDD(arr) {
@@ -92,7 +92,7 @@ function ddCell(d) {
   return `<div class="dd-wrap">
     <div class="dd-inner">
       <span class="val-neg">−${inr(abs)}</span>
-      ${isAlert(d) ? `<span class="tag-alert">↑ delta</span>` : ''}
+      ${isAlert(d) ? `<span class="tag-delta">↑ delta</span>` : ''}
     </div>
     <div class="dd-bar"><div class="dd-fill" style="width:${pct.toFixed(1)}%;background:${col}"></div></div>
   </div>`;
@@ -123,7 +123,7 @@ function renderDashboard() {
   const mdd3 = t3.length ? Math.min(...t3.map(t => m3[t.id].dd)) : 0;
 
   // Hero title
-  document.getElementById('dash-net-title').textContent = (net >= 0 ? '+' : '−') + inr(Math.abs(net));
+  document.getElementById('dash-hero').textContent = (net >= 0 ? '+' : '−') + inr(Math.abs(net));
 
   renderKPIs('kpi-dash', [
     { label: 'Net P&L', value: sig(net), valCls: net >= 0 ? 'kpi-pos' : 'kpi-neg', sub: 'Gross ' + sig(gross), cls: net >= 0 ? 'k-green' : 'k-red' },
@@ -134,7 +134,7 @@ function renderDashboard() {
 
   // Recent trades
   const recent = [...trades].sort((a,b) => b.date.localeCompare(a.date)).slice(0, 6);
-  document.getElementById('recent-pill').textContent = recent.length + ' of ' + trades.length;
+  document.getElementById('recent-tag').textContent = recent.length + ' of ' + trades.length;
   document.getElementById('recent-list').innerHTML = recent.length
     ? recent.map(t => {
         const n = t.pnl - t.tax;
@@ -157,7 +157,7 @@ function renderDashboard() {
     const labels = [], data = [];
     sorted.forEach(t => { cum += t.pnl - t.tax; labels.push(t.date); data.push(cum); });
     const col = data[data.length-1] >= 0 ? '#16a34a' : '#dc2626';
-    charts['dm'] = new Chart(document.getElementById('chart-dash-main'), { type: 'line', data: { labels, datasets: [lineDS(data, col)] }, options: chartOpts() });
+    charts['dm'] = new Chart(document.getElementById('ch-dash'), { type: 'line', data: { labels, datasets: [lineDS(data, col)] }, options: chartOpts() });
   }
 
   killChart('ds');
@@ -165,7 +165,7 @@ function renderDashboard() {
   trades.forEach(t => { const s = t.symbol || 'OTHER'; smap[s] = (smap[s]||0) + (t.pnl-t.tax); });
   const se = Object.entries(smap).sort((a,b) => a[1]-b[1]);
   if (se.length) {
-    charts['ds'] = new Chart(document.getElementById('chart-dash-sym'), {
+    charts['ds'] = new Chart(document.getElementById('ch-sym-dash'), {
       type: 'bar',
       data: { labels: se.map(e => e[0]), datasets: [{ data: se.map(e => e[1]), backgroundColor: se.map(e => e[1] >= 0 ? 'rgba(22,163,74,.15)' : 'rgba(220,38,38,.15)'), borderColor: se.map(e => e[1] >= 0 ? '#16a34a' : '#dc2626'), borderWidth: 1.5, borderRadius: 6 }] },
       options: chartOpts()
@@ -300,8 +300,8 @@ function chartOpts(extra={}) {
   return {
     plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>' ₹'+(c.parsed.y??0).toLocaleString('en-IN')}}, ...extra.plugins },
     scales:{
-      x:{ grid:{color:'rgba(160,160,210,.12)',lineWidth:.5}, ticks:{font:{size:10,family:"'JetBrains Mono',monospace"},color:'#9396b0',maxTicksLimit:7} },
-      y:{ grid:{color:'rgba(160,160,210,.12)',lineWidth:.5}, ticks:{font:{size:10,family:"'JetBrains Mono',monospace"},color:'#9396b0',callback:v=>'₹'+v.toLocaleString('en-IN')} }
+      x:{ grid:{color:'rgba(160,160,210,.12)',lineWidth:.5}, ticks:{font:{size:10,family:"'JetBrains Mono',monospace"},color:'#a3a3a3',maxTicksLimit:7} },
+      y:{ grid:{color:'rgba(160,160,210,.12)',lineWidth:.5}, ticks:{font:{size:10,family:"'JetBrains Mono',monospace"},color:'#a3a3a3',callback:v=>'₹'+v.toLocaleString('en-IN')} }
     },
     animation:{duration:400}, responsive:true, maintainAspectRatio:false, ...extra
   };
@@ -324,16 +324,16 @@ function renderCharts() {
     charts[key] = new Chart(document.getElementById(canvasId),{type:'line',data:{labels,datasets:[lineDS(data,col)]},options:chartOpts()});
   };
 
-  mkLine(sorted,'chart-combined','cc');
-  mkLine(t2,'chart-200','c2');
-  mkLine(t3,'chart-300','c3');
+  mkLine(sorted,'ch-combined','cc');
+  mkLine(t2,'ch-200','c2');
+  mkLine(t3,'ch-300','c3');
 
   killChart('cs');
   const smap={};
   trades.forEach(t=>{const s=t.symbol||'OTHER';smap[s]=(smap[s]||0)+(t.pnl-t.tax);});
   const se=Object.entries(smap).sort((a,b)=>a[1]-b[1]);
   if (se.length) {
-    charts['cs']=new Chart(document.getElementById('chart-sym'),{type:'bar',data:{labels:se.map(e=>e[0]),datasets:[{data:se.map(e=>e[1]),backgroundColor:se.map(e=>e[1]>=0?'rgba(22,163,74,.15)':'rgba(220,38,38,.15)'),borderColor:se.map(e=>e[1]>=0?'#16a34a':'#dc2626'),borderWidth:1.5,borderRadius:6}]},options:chartOpts()});
+    charts['cs']=new Chart(document.getElementById('ch-sym'),{type:'bar',data:{labels:se.map(e=>e[0]),datasets:[{data:se.map(e=>e[1]),backgroundColor:se.map(e=>e[1]>=0?'rgba(22,163,74,.15)':'rgba(220,38,38,.15)'),borderColor:se.map(e=>e[1]>=0?'#16a34a':'#dc2626'),borderWidth:1.5,borderRadius:6}]},options:chartOpts()});
   }
 
   killChart('cd');
@@ -341,7 +341,7 @@ function renderCharts() {
     const {m2,m3}=getDDMaps();
     const labels=[],d2=[],d3=[];
     sorted.forEach(t=>{labels.push(t.date);if(t.strat==='200'){d2.push(m2[t.id]?.dd??0);d3.push(null);}else{d3.push(m3[t.id]?.dd??0);d2.push(null);}});
-    charts['cd']=new Chart(document.getElementById('chart-dd'),{type:'line',data:{labels,datasets:[{...lineDS(d2,'#7c5cfc'),label:'200%',spanGaps:true},{...lineDS(d3,'#12b8a0'),label:'300%',spanGaps:true}]},options:chartOpts({plugins:{legend:{display:true,labels:{font:{size:11},color:'#9396b0'}}}})});
+    charts['cd']=new Chart(document.getElementById('ch-dd'),{type:'line',data:{labels,datasets:[{...lineDS(d2,'#f97316'),label:'200%',spanGaps:true},{...lineDS(d3,'#737373'),label:'300%',spanGaps:true}]},options:chartOpts({plugins:{legend:{display:true,labels:{font:{size:11},color:'#a3a3a3'}}}})});
   }
 }
 
@@ -355,7 +355,7 @@ function renderAll() {
 }
 
 // ── Navigation ─────────────────────────────────────────────────────────────
-window.nav = function(name) {
+window.goPage = function(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item,.bnav').forEach(el => el.classList.toggle('active', el.dataset.page === name));
   const pg = document.getElementById('page-' + name);
@@ -366,22 +366,22 @@ window.nav = function(name) {
 
 // ── Drawer ─────────────────────────────────────────────────────────────────
 window.openDrawer = function() {
-  document.getElementById('drawer').classList.add('open');
-  document.getElementById('drawer-overlay').classList.add('show');
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('drawer-bd').classList.add('show');
 };
 window.closeDrawer = function() {
-  document.getElementById('drawer').classList.remove('open');
-  document.getElementById('drawer-overlay').classList.remove('show');
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('drawer-bd').classList.remove('show');
 };
 
 // ── Modal (Add Trade) ──────────────────────────────────────────────────────
 window.openModal = function() {
   document.getElementById('modal').classList.add('open');
-  document.getElementById('modal-backdrop').classList.add('show');
+  document.getElementById('modal-bd').classList.add('show');
 };
 window.closeModal = function() {
   document.getElementById('modal').classList.remove('open');
-  document.getElementById('modal-backdrop').classList.remove('show');
+  document.getElementById('modal-bd').classList.remove('show');
 };
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeDrawer(); } });
 
