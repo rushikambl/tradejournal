@@ -1,10 +1,16 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getFirestore, collection, doc, addDoc, deleteDoc, updateDoc, onSnapshot, query, orderBy }
+import { getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc, deleteDoc, updateDoc, onSnapshot, query, where, writeBatch }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword }
+  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import { firebaseConfig } from './firebase-config.js';
 
 const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp);
+const auth = getAuth(fbApp);
+// secondary app — lets a manager create child logins without dropping their own session
+let secondaryApp; try { secondaryApp = initializeApp(firebaseConfig, 'secondary'); } catch (_) {}
+const secondaryAuth = secondaryApp ? getAuth(secondaryApp) : null;
 
 // ── State ──────────────────────────────────────────────────────────────────
 let trades = [], strategies = [], portfolios = [], adjustments = [];
@@ -13,38 +19,88 @@ let sortKey = 'date', sortDir = 1;
 let fResult = '';
 let charts = {};
 let appReady = false;
-let loaded = { trades:false, strategies:false, portfolios:false, adjustments:false };
 let curPage = 'dashboard';
 let curStratId = null, curPfId = null;
 
+// auth / multi-account context
+let me = null;            // my profile {uid,email,displayName,role,parentId}
+let ctxOwnerId = null;    // whose data is currently loaded
+let viewing = null;       // null = my own account; else the child profile I'm viewing (read-only)
+let children = [];        // my direct child accounts
+let dataUnsubs = [];      // active onSnapshot unsubscribers
+
 const PALETTE = ['#f97316','#3b82f6','#10b981','#a855f7','#ef4444','#eab308','#06b6d4','#ec4899','#14b8a6','#f43f5e'];
 const DEFAULT_THRESHOLD = 1000;
+const isRO = () => !!viewing;                                   // read-only when viewing a child
+const canManage = () => me && (me.role === 'superadmin' || me.role === 'manager');
+function roGuard() { if (isRO()) { showToast('Read-only — viewing another account'); return true; } return false; }
 
-// ── Boot ───────────────────────────────────────────────────────────────────
+// ── Auth boot ────────────────────────────────────────────────────────────────
 function boot() {
-  setSyncState('syncing');
-  sub('strategies', query(collection(db,'strategies'), orderBy('createdAt')), arr => strategies = arr);
-  sub('portfolios', query(collection(db,'portfolios'), orderBy('createdAt')), arr => portfolios = arr);
-  sub('adjustments', query(collection(db,'adjustments'), orderBy('date')), arr => adjustments = arr);
-  sub('trades', query(collection(db,'trades'), orderBy('date')), arr => trades = arr);
+  onAuthStateChanged(auth, async user => {
+    if (!user) { me = null; showLogin(); return; }
+    try {
+      const snap = await getDoc(doc(db, 'users', user.uid));
+      if (!snap.exists()) { authError('This login has no profile yet. Use first-time setup (superadmin), or ask your manager to recreate it.'); return; }
+      me = { uid: user.uid, ...snap.data() };
+      if (me.role === 'superadmin') { try { await claimLegacy(); } catch (e) { console.error('claim', e); } }
+      hideLogin();
+      await loadChildren();
+      renderTopUser();
+      setContext(me.uid, null);
+    } catch (e) { console.error(e); authError('Could not load your account — check connection and rules.'); }
+  });
 }
 
-function sub(name, q, assign) {
-  onSnapshot(q,
+// one-time: stamp ownerId on pre-auth (legacy) docs — superadmin only
+async function claimLegacy() {
+  for (const coll of ['trades', 'strategies', 'portfolios', 'adjustments']) {
+    const snap = await getDocs(collection(db, coll));
+    const orphans = snap.docs.filter(d => d.data().ownerId === undefined);
+    for (let i = 0; i < orphans.length; i += 400) {
+      const b = writeBatch(db);
+      orphans.slice(i, i + 400).forEach(d => b.update(doc(db, coll, d.id), { ownerId: me.uid }));
+      await b.commit();
+    }
+  }
+}
+
+async function loadChildren() {
+  children = [];
+  try {
+    const snap = await getDocs(query(collection(db, 'users'), where('parentId', '==', me.uid)));
+    children = snap.docs.map(d => ({ uid: d.id, ...d.data() }))
+      .sort((a, b) => (a.displayName || a.email || '').localeCompare(b.displayName || b.email || ''));
+  } catch (e) { console.error('children', e); }
+}
+
+// switch which account's data is loaded (own = editable, child = read-only)
+function setContext(ownerId, viewProfile) {
+  ctxOwnerId = ownerId;
+  viewing = viewProfile || null;
+  dataUnsubs.forEach(u => { try { u(); } catch (_) {} });
+  dataUnsubs = [];
+  trades = []; strategies = []; portfolios = []; adjustments = [];
+  setSyncState('syncing');
+  document.getElementById('app').classList.toggle('ro', isRO());
+  renderViewBanner();
+  subData('strategies', s => strategies = s);
+  subData('portfolios', s => portfolios = s);
+  subData('adjustments', s => adjustments = s);
+  subData('trades', s => trades = s);
+}
+
+function subData(name, assign) {
+  const un = onSnapshot(query(collection(db, name), where('ownerId', '==', ctxOwnerId)),
     snap => {
       assign(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      loaded[name] = true;
       setSyncState('live');
       if (!appReady) { appReady = true; showApp(); }
       renderAll();
     },
-    err => {
-      console.error(name, err);
-      setSyncState('error');
-      loaded[name] = true;
-      if (!appReady) { appReady = true; showApp(); }
-    }
+    err => { console.error(name, err); setSyncState('error'); if (!appReady) { appReady = true; showApp(); } }
   );
+  dataUnsubs.push(un);
 }
 
 function showApp() {
@@ -578,6 +634,7 @@ window.goPage = function (name) {
   if (name === 'charts') setTimeout(renderCharts, 60);
   if (name === 'strategy-detail') renderStrategyDetail();
   if (name === 'portfolio-detail') renderPortfolioDetail();
+  if (name === 'accounts') renderAccounts();
   closeDrawer();
   document.getElementById('content').scrollTop = 0;
 };
@@ -638,12 +695,14 @@ window.addTrade = async function () {
   if (!strategyId) return showToast('Pick a strategy');
   if (!lots || lots <= 0) return showToast('Enter valid lots');
   if (isNaN(pnl)) return showToast('Enter P&L');
+  if (roGuard()) return;
   setSyncState('syncing');
-  try { await addDoc(collection(db, 'trades'), { date, strategyId, symbol, lots, pnl, tax, notes }); closeModal(); showToast('Trade added ✓'); }
+  try { await addDoc(collection(db, 'trades'), { date, strategyId, symbol, lots, pnl, tax, notes, ownerId: me.uid }); closeModal(); showToast('Trade added ✓'); }
   catch (e) { setSyncState('error'); showToast('Error — check connection'); console.error(e); }
 };
 
 window.deleteTrade = async function (id) {
+  if (roGuard()) return;
   if (!confirm('Delete this trade?')) return;
   setSyncState('syncing');
   try { await deleteDoc(doc(db, 'trades', id)); showToast('Trade removed'); }
@@ -668,6 +727,7 @@ window.pickColor = function (c) {
 function rgbHex(rgb) { const m = rgb.match(/\d+/g); if (!m) return rgb; return '#' + m.slice(0, 3).map(x => (+x).toString(16).padStart(2, '0')).join(''); }
 
 window.saveStrategy = async function (id) {
+  if (roGuard()) return;
   const name = document.getElementById('s-name').value.trim();
   const threshold = parseFloat(document.getElementById('s-thr').value);
   if (!name) return showToast('Enter a name');
@@ -675,12 +735,13 @@ window.saveStrategy = async function (id) {
   setSyncState('syncing');
   try {
     if (id) await updateDoc(doc(db, 'strategies', id), { name, threshold, color: pickedColor });
-    else await addDoc(collection(db, 'strategies'), { name, threshold, color: pickedColor, createdAt: Date.now() });
+    else await addDoc(collection(db, 'strategies'), { name, threshold, color: pickedColor, createdAt: Date.now(), ownerId: me.uid });
     closeModal(); showToast(id ? 'Strategy saved ✓' : 'Strategy created ✓');
   } catch (e) { setSyncState('error'); showToast('Error'); console.error(e); }
 };
 
 window.deleteStrategy = async function (id) {
+  if (roGuard()) return;
   const used = trades.filter(t => t.strategyId === id).length;
   const inPf = portfolios.filter(p => (p.strategyIds || []).includes(id)).length;
   let msg = 'Delete this strategy?';
@@ -724,6 +785,7 @@ window.toggleStrat = function (id) {
   if (el) el.classList.toggle('sel', pickedStrats.has(id));
 };
 window.savePortfolio = async function (id) {
+  if (roGuard()) return;
   const name = document.getElementById('p-name').value.trim();
   const active = document.getElementById('p-active').checked;
   const strategyIds = [...pickedStrats];
@@ -732,15 +794,17 @@ window.savePortfolio = async function (id) {
   setSyncState('syncing');
   try {
     if (id) await updateDoc(doc(db, 'portfolios', id), { name, strategyIds, active });
-    else await addDoc(collection(db, 'portfolios'), { name, strategyIds, active, createdAt: Date.now() });
+    else await addDoc(collection(db, 'portfolios'), { name, strategyIds, active, createdAt: Date.now(), ownerId: me.uid });
     closeModal(); showToast(id ? 'Portfolio saved ✓' : 'Portfolio created ✓');
   } catch (e) { setSyncState('error'); showToast('Error'); console.error(e); }
 };
 window.togglePortfolio = async function (id, on) {
+  if (roGuard()) return;
   try { await updateDoc(doc(db, 'portfolios', id), { active: on }); showToast(on ? 'Running' : 'Stopped'); }
   catch (e) { showToast('Error'); }
 };
 window.deletePortfolio = async function (id) {
+  if (roGuard()) return;
   if (!confirm('Delete this portfolio? (Trades and strategies are not affected.)')) return;
   setSyncState('syncing');
   try { await deleteDoc(doc(db, 'portfolios', id)); showToast('Portfolio deleted'); }
@@ -784,11 +848,13 @@ window.addAdjustment = async function () {
   const a = accountTotals();
   const amount = actualPnl - a.allTimeNet;
   if (amount === 0) return showToast('Already in sync — no adjustment needed');
+  if (roGuard()) return;
   setSyncState('syncing');
-  try { await addDoc(collection(db, 'adjustments'), { date, actualPnl, amount, note }); closeModal(); showToast('Adjustment logged ✓'); }
+  try { await addDoc(collection(db, 'adjustments'), { date, actualPnl, amount, note, ownerId: me.uid }); closeModal(); showToast('Adjustment logged ✓'); }
   catch (e) { setSyncState('error'); showToast('Error'); console.error(e); }
 };
 window.deleteAdjustment = async function (id) {
+  if (roGuard()) return;
   if (!confirm('Delete this adjustment?')) return;
   setSyncState('syncing');
   try { await deleteDoc(doc(db, 'adjustments', id)); showToast('Adjustment removed'); }
@@ -797,6 +863,7 @@ window.deleteAdjustment = async function (id) {
 
 // ── Migrate legacy 200/300 trades to real strategies ─────────────────────────
 window.migrateLegacy = async function () {
+  if (roGuard()) return;
   const legacy = trades.filter(t => !t.strategyId && t.strat);
   if (!legacy.length) return showToast('Nothing to migrate');
   if (!confirm(`Migrate ${legacy.length} legacy trade(s) into real strategies? This creates strategies for 200/300 and links the trades.`)) return;
@@ -810,7 +877,7 @@ window.migrateLegacy = async function () {
         const ref = await addDoc(collection(db, 'strategies'), {
           name: tag + '% Strategy', threshold: DEFAULT_THRESHOLD,
           color: tag === '200' ? '#f97316' : tag === '300' ? '#737373' : PALETTE[0],
-          legacyTag: tag, createdAt: Date.now(),
+          legacyTag: tag, createdAt: Date.now(), ownerId: me.uid,
         });
         tagToId[tag] = ref.id;
       } else tagToId[tag] = s.id;
@@ -874,6 +941,7 @@ function parseCSV(text) {
 window.onCsvFile = async function (e) {
   const file = e.target.files[0]; e.target.value = '';
   if (!file) return;
+  if (roGuard()) return;
   let text; try { text = await file.text(); } catch (_) { return showToast('Could not read file'); }
   const rows = parseCSV(text);
   if (rows.length < 2) return showToast('Empty CSV');
@@ -960,17 +1028,157 @@ window.onCsvFile = async function (e) {
     const idMap = {};
     for (let i = 0; i < toCreate.length; i++) {
       const c = toCreate[i];
-      const ref = await addDoc(collection(db, 'strategies'), { name: c.name, threshold: DEFAULT_THRESHOLD, color: c.color, ...(c.tag ? { legacyTag: c.tag } : {}), createdAt: Date.now() + i });
+      const ref = await addDoc(collection(db, 'strategies'), { name: c.name, threshold: DEFAULT_THRESHOLD, color: c.color, ...(c.tag ? { legacyTag: c.tag } : {}), createdAt: Date.now() + i, ownerId: me.uid });
       idMap['@' + (i + 1)] = ref.id;
     }
     await Promise.all(plan.map(p => addDoc(collection(db, 'trades'), {
       date: p.date, strategyId: (typeof p.ref === 'string' && p.ref[0] === '@') ? idMap[p.ref] : p.ref,
-      symbol: p.symbol, lots: p.lots, pnl: p.pnl, tax: p.tax, notes: p.notes
+      symbol: p.symbol, lots: p.lots, pnl: p.pnl, tax: p.tax, notes: p.notes, ownerId: me.uid
     })));
-    await Promise.all(adjPlan.map(a => addDoc(collection(db, 'adjustments'), { date: a.date, actualPnl: a.actualPnl, amount: a.amount, note: a.note })));
+    await Promise.all(adjPlan.map(a => addDoc(collection(db, 'adjustments'), { date: a.date, actualPnl: a.actualPnl, amount: a.amount, note: a.note, ownerId: me.uid })));
     showToast(`Imported ${plan.length} trade(s)${adjPlan.length ? ' + ' + adjPlan.length + ' adj' : ''} ✓`);
   } catch (err) { setSyncState('error'); showToast('Import error'); console.error(err); }
 };
+
+// ── Auth UI ──────────────────────────────────────────────────────────────────
+function showLogin() {
+  document.getElementById('splash').classList.add('out');
+  document.getElementById('app').classList.add('hidden');
+  const lg = document.getElementById('login'); if (lg) lg.classList.add('show');
+  appReady = false;
+}
+function hideLogin() { const lg = document.getElementById('login'); if (lg) lg.classList.remove('show'); }
+function authError(msg) {
+  const el = document.getElementById('login-err'); if (el) { el.textContent = msg; el.style.display = 'block'; }
+  showLogin();
+}
+
+window.doLogin = async function () {
+  const email = document.getElementById('lg-email').value.trim();
+  const pw = document.getElementById('lg-pw').value;
+  const err = document.getElementById('login-err');
+  if (!email || !pw) { err.textContent = 'Enter email and password'; err.style.display = 'block'; return; }
+  err.style.display = 'none';
+  try { await signInWithEmailAndPassword(auth, email, pw); }
+  catch (e) { err.textContent = loginErr(e); err.style.display = 'block'; }
+};
+window.doLogout = async function () { try { await signOut(auth); location.reload(); } catch (_) {} };
+
+// first-time setup: create the superadmin (rules gate this to your email)
+window.doSetup = async function () {
+  const email = document.getElementById('su-email').value.trim();
+  const pw = document.getElementById('su-pw').value;
+  const name = document.getElementById('su-name').value.trim() || 'Superadmin';
+  const err = document.getElementById('login-err');
+  if (!email || pw.length < 6) { err.textContent = 'Enter email and a password (min 6 chars)'; err.style.display = 'block'; return; }
+  err.style.display = 'none';
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, email, pw);
+    await setDocProfile(cred.user.uid, { email, displayName: name, role: 'superadmin', parentId: null, createdAt: Date.now() });
+    // onAuthStateChanged will pick it up
+  } catch (e) { err.textContent = loginErr(e); err.style.display = 'block'; }
+};
+function loginErr(e) {
+  const c = (e && e.code) || '';
+  if (c.includes('invalid-credential') || c.includes('wrong-password') || c.includes('user-not-found')) return 'Wrong email or password';
+  if (c.includes('email-already-in-use')) return 'That email already has an account — sign in instead';
+  if (c.includes('permission')) return 'Setup blocked by security rules — check the superadmin email in your rules';
+  return (e && e.message) ? e.message.replace('Firebase: ', '') : 'Something went wrong';
+}
+async function setDocProfile(uid, data) { await setDoc(doc(db, 'users', uid), data); }
+
+// top-bar identity + view banner
+function renderTopUser() {
+  const el = document.getElementById('tb-user'); if (!el) return;
+  el.innerHTML = `<div class="user-chip"><span class="user-name">${esc(me.displayName || me.email)}</span><span class="user-role">${me.role}</span></div>
+    <button class="tb-logout" title="Sign out" onclick="doLogout()"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M6 2H3a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3M10 10l3-2.5L10 5M13 7.5H6" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+  // show/hide manage-only nav
+  document.querySelectorAll('[data-page="accounts"]').forEach(b => b.style.display = canManage() ? '' : 'none');
+}
+function renderViewBanner() {
+  let b = document.getElementById('ro-banner');
+  if (!b) return;
+  if (isRO()) {
+    b.style.display = 'flex';
+    b.innerHTML = `<span>Viewing <b>${esc(viewing.displayName || viewing.email)}</b> — read-only</span>
+      <button onclick="exitView()">Back to my account</button>`;
+  } else { b.style.display = 'none'; b.innerHTML = ''; }
+}
+
+// ── Accounts page ─────────────────────────────────────────────────────────────
+async function renderAccounts() {
+  await loadChildren();
+  const el = document.getElementById('acct-list');
+  if (!el) return;
+  if (!children.length) {
+    el.innerHTML = `<div class="card" style="grid-column:1/-1;text-align:center;padding:40px"><div style="color:#888;margin-bottom:14px">No accounts yet. Create one to give someone their own isolated journal.</div><button class="btn-primary" onclick="openAccountModal()">Create account</button></div>`;
+    return;
+  }
+  el.innerHTML = children.map(c => `
+    <div class="scard">
+      <div class="scard-top">
+        <div class="scard-name"><span class="cdot" style="background:${c.role === 'manager' ? '#3b82f6' : '#10b981'}"></span><span>${esc(c.displayName || c.email)}</span></div>
+        <div class="scard-acts">
+          ${me.role === 'superadmin' ? `<button class="icon-btn" title="${c.role === 'manager' ? 'Demote to user' : 'Make manager'}" onclick="toggleRole('${c.uid}','${c.role}')">${c.role === 'manager' ? 'M' : 'U'}</button>` : ''}
+        </div>
+      </div>
+      <div class="scard-meta" style="margin-bottom:8px">${esc(c.email)}</div>
+      <div class="scard-stats" style="margin-bottom:16px"><span class="spill">${c.role}</span></div>
+      <button class="f-btn" style="width:100%;height:36px" onclick="viewAccount('${c.uid}')">View P&amp;L (read-only)</button>
+    </div>`).join('');
+}
+
+window.openAccountModal = function () {
+  if (!canManage()) return showToast('Not allowed');
+  const roleField = me.role === 'superadmin'
+    ? `<div class="mf"><label>Role</label><select id="ac-role"><option value="user">User</option><option value="manager">Manager (can create their own accounts)</option></select></div>`
+    : `<input type="hidden" id="ac-role" value="user">`;
+  openModal('Create account', `
+    <div style="font-size:13px;color:#888;line-height:1.6">Creates a fresh login with its own empty journal. You'll be able to view its P&L (read-only).</div>
+    <div class="mf"><label>Display name</label><input type="text" id="ac-name" placeholder="e.g. Desk 2 / partner's client"></div>
+    <div class="mrow">
+      <div class="mf"><label>Email</label><input type="email" id="ac-email" placeholder="login@email.com"></div>
+      <div class="mf"><label>Password</label><input type="text" id="ac-pw" placeholder="min 6 chars"></div>
+    </div>
+    ${roleField}`,
+    `<button class="btn-ghost" onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="createAccount()">Create</button>`);
+};
+
+window.createAccount = async function () {
+  if (!canManage()) return showToast('Not allowed');
+  if (!secondaryAuth) return showToast('Account creation unavailable');
+  const name = document.getElementById('ac-name').value.trim();
+  const email = document.getElementById('ac-email').value.trim();
+  const pw = document.getElementById('ac-pw').value;
+  const role = (document.getElementById('ac-role') || {}).value || 'user';
+  if (!email || pw.length < 6) return showToast('Email + password (6+ chars) required');
+  setSyncState('syncing');
+  try {
+    // create the auth user on the secondary app so our own session is untouched
+    const cred = await createUserWithEmailAndPassword(secondaryAuth, email, pw);
+    const childUid = cred.user.uid;
+    await signOut(secondaryAuth);
+    // write its profile from OUR session (so parentId == me.uid passes the rules)
+    await setDocProfile(childUid, { email, displayName: name || email, role: (me.role === 'superadmin' ? role : 'user'), parentId: me.uid, createdAt: Date.now() });
+    closeModal(); showToast('Account created ✓');
+    await loadChildren(); if (curPage === 'accounts') renderAccounts();
+  } catch (e) { setSyncState('error'); showToast(loginErr(e)); console.error(e); }
+};
+
+window.toggleRole = async function (uid, cur) {
+  if (me.role !== 'superadmin') return showToast('Only superadmin can change roles');
+  const next = cur === 'manager' ? 'user' : 'manager';
+  if (!confirm(`Change this account to "${next}"?`)) return;
+  try { await updateDoc(doc(db, 'users', uid), { role: next }); showToast('Role updated'); await loadChildren(); renderAccounts(); }
+  catch (e) { showToast('Error'); console.error(e); }
+};
+
+window.viewAccount = function (uid) {
+  const c = children.find(x => x.uid === uid); if (!c) return;
+  setContext(uid, c);
+  goPage('dashboard');
+};
+window.exitView = function () { setContext(me.uid, null); goPage('dashboard'); };
 
 let toastT;
 window.showToast = function (msg) {

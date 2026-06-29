@@ -1,0 +1,93 @@
+rules_version = '2';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TradeJournal security rules
+//
+// SETUP: replace the email on the SUPERADMIN line below with YOUR email.
+// Only that email is allowed to create the superadmin account via first-time setup.
+//
+// Model:
+//   users/{uid} = { email, displayName, role: 'superadmin'|'manager'|'user', parentId }
+//   data docs   = trades / strategies / portfolios / adjustments, each with ownerId
+//
+//   • You can read+write only your OWN data (ownerId == you).
+//   • A creator can READ (not write) the data of accounts they DIRECTLY created.
+//   • superadmin & manager can create child accounts; only superadmin can mint managers.
+//   • Legacy docs with no ownerId are claimable by the superadmin only.
+// ─────────────────────────────────────────────────────────────────────────────
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function SUPERADMIN() { return 'you@example.com'; }   // <-- CHANGE THIS
+
+    function signedIn() { return request.auth != null; }
+    function uidExists(uid) { return exists(/databases/$(database)/documents/users/$(uid)); }
+    function userData(uid) { return get(/databases/$(database)/documents/users/$(uid)).data; }
+    function myRole() { return signedIn() && uidExists(request.auth.uid) ? userData(request.auth.uid).role : 'none'; }
+    function isSuper() { return myRole() == 'superadmin'; }
+    function canCreateAccounts() { return myRole() == 'superadmin' || myRole() == 'manager'; }
+
+    // ── users ──────────────────────────────────────────────────────────────
+    match /users/{uid} {
+      allow read: if signedIn() && (
+        uid == request.auth.uid ||
+        resource.data.parentId == request.auth.uid ||
+        isSuper()
+      );
+
+      // first-time superadmin bootstrap (email-gated), OR a manager/superadmin creating a child
+      allow create: if signedIn() && (
+        ( uid == request.auth.uid
+          && request.resource.data.role == 'superadmin'
+          && request.resource.data.parentId == null
+          && request.auth.token.email == SUPERADMIN() )
+        ||
+        ( request.resource.data.parentId == request.auth.uid
+          && canCreateAccounts()
+          && ( request.resource.data.role == 'user'
+               || (request.resource.data.role == 'manager' && isSuper()) ) )
+      );
+
+      // self may edit own profile but not change role/parent; superadmin may set a direct child's role
+      allow update: if signedIn() && (
+        ( uid == request.auth.uid
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.parentId == resource.data.parentId )
+        ||
+        ( isSuper()
+          && resource.data.parentId == request.auth.uid
+          && request.resource.data.parentId == resource.data.parentId
+          && (request.resource.data.role == 'user' || request.resource.data.role == 'manager') )
+      );
+
+      allow delete: if isSuper() && resource.data.parentId == request.auth.uid;
+    }
+
+    // ── trading data ─────────────────────────────────────────────────────────
+    function hasOwner() { return 'ownerId' in resource.data && resource.data.ownerId != null; }
+    function isMine() { return hasOwner() && resource.data.ownerId == request.auth.uid; }
+    function ownerIsMyChild() {
+      return hasOwner()
+        && uidExists(resource.data.ownerId)
+        && userData(resource.data.ownerId).parentId == request.auth.uid;
+    }
+    function canReadData() {
+      return signedIn() && ( isMine() || ownerIsMyChild() || (!hasOwner() && isSuper()) );
+    }
+    function canWriteData() {
+      return signedIn() && (
+        ( request.resource.data.ownerId == request.auth.uid )           // create/own
+        || isMine()                                                      // update/delete own
+        || (!hasOwner() && isSuper())                                    // claim legacy
+      );
+    }
+
+    match /trades/{id}      { allow read: if canReadData(); allow write: if canWriteData(); }
+    match /strategies/{id}  { allow read: if canReadData(); allow write: if canWriteData(); }
+    match /portfolios/{id}  { allow read: if canReadData(); allow write: if canWriteData(); }
+    match /adjustments/{id} { allow read: if canReadData(); allow write: if canWriteData(); }
+
+    match /settings/{id}    { allow read, write: if isSuper(); }
+  }
+}
