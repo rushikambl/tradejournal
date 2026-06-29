@@ -54,6 +54,8 @@ function boot() {
 
 // one-time: stamp ownerId on pre-auth (legacy) docs — superadmin only
 async function claimLegacy() {
+  const flag = 'tj_claimed_' + me.uid;
+  try { if (localStorage.getItem(flag) === '1') return; } catch (_) {}
   for (const coll of ['trades', 'strategies', 'portfolios', 'adjustments']) {
     const snap = await getDocs(collection(db, coll));
     const orphans = snap.docs.filter(d => d.data().ownerId === undefined);
@@ -63,13 +65,17 @@ async function claimLegacy() {
       await b.commit();
     }
   }
+  try { localStorage.setItem(flag, '1'); } catch (_) {}
 }
 
 async function loadChildren() {
   children = [];
   try {
-    const snap = await getDocs(query(collection(db, 'users'), where('parentId', '==', me.uid)));
+    const snap = (me.role === 'superadmin')
+      ? await getDocs(collection(db, 'users'))
+      : await getDocs(query(collection(db, 'users'), where('parentId', '==', me.uid)));
     children = snap.docs.map(d => ({ uid: d.id, ...d.data() }))
+      .filter(u => u.uid !== me.uid)
       .sort((a, b) => (a.displayName || a.email || '').localeCompare(b.displayName || b.email || ''));
   } catch (e) { console.error('children', e); }
 }
@@ -1064,20 +1070,7 @@ window.doLogin = async function () {
 };
 window.doLogout = async function () { try { await signOut(auth); location.reload(); } catch (_) {} };
 
-// first-time setup: create the superadmin (rules gate this to your email)
-window.doSetup = async function () {
-  const email = document.getElementById('su-email').value.trim();
-  const pw = document.getElementById('su-pw').value;
-  const name = document.getElementById('su-name').value.trim() || 'Superadmin';
-  const err = document.getElementById('login-err');
-  if (!email || pw.length < 6) { err.textContent = 'Enter email and a password (min 6 chars)'; err.style.display = 'block'; return; }
-  err.style.display = 'none';
-  try {
-    const cred = await createUserWithEmailAndPassword(auth, email, pw);
-    await setDocProfile(cred.user.uid, { email, displayName: name, role: 'superadmin', parentId: null, createdAt: Date.now() });
-    // onAuthStateChanged will pick it up
-  } catch (e) { err.textContent = loginErr(e); err.style.display = 'block'; }
-};
+// superadmin setup has been disabled — the superadmin already exists.
 function loginErr(e) {
   const c = (e && e.code) || '';
   if (c.includes('invalid-credential') || c.includes('wrong-password') || c.includes('user-not-found')) return 'Wrong email or password';
@@ -1114,18 +1107,26 @@ async function renderAccounts() {
     el.innerHTML = `<div class="card" style="grid-column:1/-1;text-align:center;padding:40px"><div style="color:#888;margin-bottom:14px">No accounts yet. Create one to give someone their own isolated journal.</div><button class="btn-primary" onclick="openAccountModal()">Create account</button></div>`;
     return;
   }
-  el.innerHTML = children.map(c => `
+  const nameById = { [me.uid]: (me.displayName || me.email) + ' (you)' };
+  children.forEach(c => { nameById[c.uid] = c.displayName || c.email; });
+  el.innerHTML = children.map(c => {
+    const isDirect = c.parentId === me.uid;
+    const creator = nameById[c.parentId] || '—';
+    const canDel = me.role === 'superadmin' && c.role !== 'superadmin';
+    return `
     <div class="scard">
       <div class="scard-top">
         <div class="scard-name"><span class="cdot" style="background:${c.role === 'manager' ? '#3b82f6' : '#10b981'}"></span><span>${esc(c.displayName || c.email)}</span></div>
         <div class="scard-acts">
-          ${me.role === 'superadmin' ? `<button class="icon-btn" title="${c.role === 'manager' ? 'Demote to user' : 'Make manager'}" onclick="toggleRole('${c.uid}','${c.role}')">${c.role === 'manager' ? 'M' : 'U'}</button>` : ''}
+          ${me.role === 'superadmin' && c.role !== 'superadmin' ? `<button class="icon-btn" title="${c.role === 'manager' ? 'Demote to user' : 'Make manager'}" onclick="toggleRole('${c.uid}','${c.role}')">${c.role === 'manager' ? 'M' : 'U'}</button>` : ''}
+          ${canDel ? `<button class="icon-btn danger" title="Delete account" onclick="deleteAccount('${c.uid}')"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2.5 3.5h8M5 3.5V2.3h3v1.2M3.5 3.5l.5 7.5h5l.5-7.5" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>` : ''}
         </div>
       </div>
       <div class="scard-meta" style="margin-bottom:8px">${esc(c.email)}</div>
-      <div class="scard-stats" style="margin-bottom:16px"><span class="spill">${c.role}</span></div>
+      <div class="scard-stats" style="margin-bottom:16px"><span class="spill">${c.role}</span>${me.role === 'superadmin' && !isDirect ? `<span class="spill">by ${esc(creator)}</span>` : ''}</div>
       <button class="f-btn" style="width:100%;height:36px" onclick="viewAccount('${c.uid}')">View P&amp;L (read-only)</button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 window.openAccountModal = function () {
@@ -1179,6 +1180,28 @@ window.viewAccount = function (uid) {
   goPage('dashboard');
 };
 window.exitView = function () { setContext(me.uid, null); goPage('dashboard'); };
+
+window.deleteAccount = async function (uid) {
+  if (me.role !== 'superadmin') return showToast('Only superadmin can delete accounts');
+  const c = children.find(x => x.uid === uid); if (!c) return;
+  if (c.role === 'superadmin') return showToast('Cannot delete a superadmin');
+  if (!confirm(`Delete "${c.displayName || c.email}" and ALL of its trades, strategies, portfolios and adjustments?\n\nThis cannot be undone. The login is disabled (remove it fully under Authentication if you like).`)) return;
+  setSyncState('syncing');
+  try {
+    if (viewing && viewing.uid === uid) setContext(me.uid, null);
+    for (const coll of ['trades', 'strategies', 'portfolios', 'adjustments']) {
+      const snap = await getDocs(query(collection(db, coll), where('ownerId', '==', uid)));
+      for (let i = 0; i < snap.docs.length; i += 400) {
+        const b = writeBatch(db);
+        snap.docs.slice(i, i + 400).forEach(d => b.delete(doc(db, coll, d.id)));
+        await b.commit();
+      }
+    }
+    await deleteDoc(doc(db, 'users', uid));
+    showToast('Account deleted');
+    await loadChildren(); renderAccounts();
+  } catch (e) { setSyncState('error'); showToast('Delete failed — check permissions'); console.error(e); }
+};
 
 let toastT;
 window.showToast = function (msg) {

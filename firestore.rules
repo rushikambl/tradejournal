@@ -30,38 +30,33 @@ service cloud.firestore {
 
     // ── users ──────────────────────────────────────────────────────────────
     match /users/{uid} {
-      allow read: if signedIn() && (
-        uid == request.auth.uid ||
-        resource.data.parentId == request.auth.uid ||
-        isSuper()
-      );
+      // any signed-in account can read profile metadata (name/role/parent) — needed
+      // for the accounts directory. Trading data stays protected by the rules below.
+      allow read: if signedIn();
 
-      // first-time superadmin bootstrap (email-gated), OR a manager/superadmin creating a child
-      allow create: if signedIn() && (
-        ( uid == request.auth.uid
-          && request.resource.data.role == 'superadmin'
-          && request.resource.data.parentId == null
-          && request.auth.token.email == SUPERADMIN() )
-        ||
-        ( request.resource.data.parentId == request.auth.uid
-          && canCreateAccounts()
-          && ( request.resource.data.role == 'user'
-               || (request.resource.data.role == 'manager' && isSuper()) ) )
-      );
+      // superadmin already exists — the app can ONLY create child accounts now.
+      // (To add another superadmin, do it manually in the Firestore console.)
+      allow create: if signedIn()
+        && request.resource.data.parentId == request.auth.uid
+        && canCreateAccounts()
+        && ( request.resource.data.role == 'user'
+             || (request.resource.data.role == 'manager' && isSuper()) );
 
-      // self may edit own profile but not change role/parent; superadmin may set a direct child's role
+      // self may edit own profile (not role/parent); superadmin may set ANY other
+      // account's role (user<->manager), but cannot change parentId or mint a superadmin.
       allow update: if signedIn() && (
         ( uid == request.auth.uid
           && request.resource.data.role == resource.data.role
           && request.resource.data.parentId == resource.data.parentId )
         ||
         ( isSuper()
-          && resource.data.parentId == request.auth.uid
+          && uid != request.auth.uid
           && request.resource.data.parentId == resource.data.parentId
           && (request.resource.data.role == 'user' || request.resource.data.role == 'manager') )
       );
 
-      allow delete: if isSuper() && resource.data.parentId == request.auth.uid;
+      // superadmin can delete any account
+      allow delete: if isSuper();
     }
 
     // ── trading data ─────────────────────────────────────────────────────────
@@ -73,13 +68,13 @@ service cloud.firestore {
         && userData(resource.data.ownerId).parentId == request.auth.uid;
     }
     function canReadData() {
-      return signedIn() && ( isMine() || ownerIsMyChild() || (!hasOwner() && isSuper()) );
+      return signedIn() && ( isMine() || ownerIsMyChild() || isSuper() );
     }
     function canWriteData() {
       return signedIn() && (
         ( request.resource.data.ownerId == request.auth.uid )           // create/own
         || isMine()                                                      // update/delete own
-        || (!hasOwner() && isSuper())                                    // claim legacy
+        || isSuper()                                                     // superadmin: full control + claim legacy
       );
     }
 
