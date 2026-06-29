@@ -1,37 +1,47 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getFirestore, collection, doc, addDoc, deleteDoc, onSnapshot, query, orderBy, getDoc, setDoc } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getFirestore, collection, doc, addDoc, deleteDoc, updateDoc, onSnapshot, query, orderBy }
+  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 import { firebaseConfig } from './firebase-config.js';
 
 const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp);
 
 // ── State ──────────────────────────────────────────────────────────────────
-let trades = [], threshold = 1000, sortKey = 'date', sortDir = 1;
-let fStrat = '', fResult = '';
+let trades = [], strategies = [], portfolios = [], adjustments = [];
+let stratMap = {};                       // key -> {id,name,threshold,color,virtual,legacyTag}
+let sortKey = 'date', sortDir = 1;
+let fResult = '';
 let charts = {};
 let appReady = false;
+let loaded = { trades:false, strategies:false, portfolios:false, adjustments:false };
+let curPage = 'dashboard';
+let curStratId = null, curPfId = null;
+
+const PALETTE = ['#f97316','#3b82f6','#10b981','#a855f7','#ef4444','#eab308','#06b6d4','#ec4899','#14b8a6','#f43f5e'];
+const DEFAULT_THRESHOLD = 1000;
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 function boot() {
   setSyncState('syncing');
+  sub('strategies', query(collection(db,'strategies'), orderBy('createdAt')), arr => strategies = arr);
+  sub('portfolios', query(collection(db,'portfolios'), orderBy('createdAt')), arr => portfolios = arr);
+  sub('adjustments', query(collection(db,'adjustments'), orderBy('date')), arr => adjustments = arr);
+  sub('trades', query(collection(db,'trades'), orderBy('date')), arr => trades = arr);
+}
 
-  getDoc(doc(db, 'settings', 'threshold')).then(d => {
-    if (d.exists()) threshold = d.data().value ?? 1000;
-    document.getElementById('dd-threshold').value = threshold;
-    document.getElementById('threshold-display').textContent = fmt(threshold);
-  }).catch(() => {});
-
-  onSnapshot(
-    query(collection(db, 'trades'), orderBy('date')),
+function sub(name, q, assign) {
+  onSnapshot(q,
     snap => {
-      trades = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      assign(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      loaded[name] = true;
       setSyncState('live');
       if (!appReady) { appReady = true; showApp(); }
       renderAll();
     },
     err => {
-      console.error(err);
+      console.error(name, err);
       setSyncState('error');
+      loaded[name] = true;
       if (!appReady) { appReady = true; showApp(); }
     }
   );
@@ -57,12 +67,38 @@ function fmt(n) { return Math.abs(n).toLocaleString('en-IN', { maximumFractionDi
 function inr(n) { return '₹' + fmt(n); }
 function sig(n) { return (n >= 0 ? '+' : '−') + inr(Math.abs(n)); }
 function pc(n) { return n > 0 ? 'vpos' : n < 0 ? 'vneg' : 'vneu'; }
+const net = t => (t.pnl || 0) - (t.tax || 0);
+const esc = s => (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// ── Strategy resolution (handles legacy 200/300 trades) ──────────────────────
+function keyOf(t) { return t.strategyId || (t.strat ? 'L:' + t.strat : 'L:?'); }
+
+function buildStratMap() {
+  const m = {};
+  strategies.forEach(s => { m[s.id] = { ...s, virtual: false, threshold: s.threshold ?? DEFAULT_THRESHOLD }; });
+  trades.forEach(t => {
+    const k = keyOf(t);
+    if (!m[k]) {
+      const legacyTag = t.strategyId ? null : (t.strat || '?');
+      m[k] = {
+        id: k, virtual: true, legacyTag,
+        name: legacyTag ? legacyTag + '% Strategy' : 'Unassigned',
+        threshold: DEFAULT_THRESHOLD,
+        color: legacyTag === '200' ? '#f97316' : legacyTag === '300' ? '#737373' : '#888888',
+      };
+    }
+  });
+  stratMap = m;
+}
+const stratOf = t => stratMap[keyOf(t)] || { name: '—', color: '#888', threshold: DEFAULT_THRESHOLD, virtual: true };
+const realStrategies = () => Object.values(stratMap).filter(s => !s.virtual);
+const hasLegacy = () => Object.values(stratMap).some(s => s.virtual && s.legacyTag);
 
 // ── DD Engine ──────────────────────────────────────────────────────────────
 function computeDD(arr) {
   let run = 0, peak = 0, wasDD = false;
   return arr.map(t => {
-    run += t.pnl - t.tax;
+    run += net(t);
     if (run > peak) peak = run;
     const dd = Math.min(0, run - peak);
     const normalize = wasDD && dd === 0;
@@ -71,159 +107,157 @@ function computeDD(arr) {
     return { run, peak, dd, ddpl, normalize };
   });
 }
-function isAlert(d) { return d && d.dd < 0 && d.ddpl <= -threshold; }
+const isAlert = (d, th) => !!d && d.dd < 0 && d.ddpl <= -(th ?? DEFAULT_THRESHOLD);
 
-function getDDMaps() {
-  const t2 = trades.filter(t => t.strat === '200').sort((a,b) => a.date.localeCompare(b.date));
-  const t3 = trades.filter(t => t.strat === '300').sort((a,b) => a.date.localeCompare(b.date));
-  const m2 = {}, m3 = {};
-  computeDD(t2).forEach((d,i) => m2[t2[i].id] = d);
-  computeDD(t3).forEach((d,i) => m3[t3[i].id] = d);
-  return { m2, m3, t2, t3 };
+// Per-strategy DD map: trade.id -> dd-row (uses that strategy's threshold for alerts)
+function ddMapAll() {
+  const map = {};
+  const groups = {};
+  trades.forEach(t => { const k = keyOf(t); (groups[k] = groups[k] || []).push(t); });
+  Object.entries(groups).forEach(([k, arr]) => {
+    arr.sort((a, b) => a.date.localeCompare(b.date));
+    computeDD(arr).forEach((d, i) => { map[arr[i].id] = d; });
+  });
+  return map;
 }
 
-function ddCell(d) {
-  if (!d) return `<span style="color:var(--text3)">—</span>`;
+// ── Account aggregation ──────────────────────────────────────────────────────
+function accountTotals() {
+  const tradesNet = trades.reduce((s, t) => s + net(t), 0);
+  const gross = trades.reduce((s, t) => s + (t.pnl || 0), 0);
+  const tax = trades.reduce((s, t) => s + (t.tax || 0), 0);
+  const adjTotal = adjustments.reduce((s, a) => s + (a.amount || 0), 0);
+  const allTimeNet = tradesNet + adjTotal;
+  const activeSet = new Set(portfolios.filter(p => p.active).flatMap(p => p.strategyIds || []));
+  const activeNet = trades.filter(t => activeSet.has(t.strategyId)).reduce((s, t) => s + net(t), 0);
+  return { tradesNet, gross, tax, adjTotal, allTimeNet, activeNet, activeSet };
+}
+
+// ── DD cell ──────────────────────────────────────────────────────────────────
+function ddCell(d, th) {
+  if (!d) return `<span style="color:#555">—</span>`;
   if (d.normalize) return `<span class="tag-norm">↓ normalize delta</span>`;
-  if (d.dd >= 0) return `<span style="color:var(--text3)">—</span>`;
+  if (d.dd >= 0) return `<span style="color:#555">—</span>`;
   const abs = Math.abs(d.ddpl);
-  const pct = Math.min(100, abs / threshold * 100);
+  const pct = Math.min(100, abs / th * 100);
   const col = pct >= 100 ? 'var(--red)' : pct >= 70 ? 'var(--orange)' : pct >= 40 ? 'var(--amber)' : 'var(--green)';
-  return `<div class="dd-wrap">
-    <div class="dd-inner">
-      <span class="val-neg">−${inr(abs)}</span>
-      ${isAlert(d) ? `<span class="tag-delta">↑ delta</span>` : ''}
-    </div>
-    <div class="dd-bar"><div class="dd-fill" style="width:${pct.toFixed(1)}%;background:${col}"></div></div>
-  </div>`;
+  return `<div class="dd-wrap"><div class="dd-inner">
+      <span class="vneg">−${inr(abs)}</span>
+      ${isAlert(d, th) ? `<span class="tag-delta">↑ delta</span>` : ''}
+    </div><div class="dd-bar"><div class="dd-fill" style="width:${pct.toFixed(1)}%;background:${col}"></div></div></div>`;
 }
+function emptyRow(cols, msg) { return `<tr><td colspan="${cols}" class="empty-cell">${msg || 'No trades yet'}</td></tr>`; }
+function stratTag(s) { return `<span class="strat-tag dyn" style="background:${s.color}22;color:${s.color};border:1px solid ${s.color}55">${esc(s.name)}</span>`; }
 
-function emptyRow(cols) {
-  return `<tr><td colspan="${cols}" class="empty-cell">No trades yet — tap Add Trade to begin</td></tr>`;
-}
-
-// ── KPI renderer ───────────────────────────────────────────────────────────
 function renderKPIs(elId, items) {
-  document.getElementById(elId).innerHTML = items.map(k =>
-    `<div class="kpi ${k.cls}">
-      <div class="kpi-label">${k.label}</div>
-      <div class="kpi-value ${k.valCls}">${k.value}</div>
+  const el = document.getElementById(elId); if (!el) return;
+  el.innerHTML = items.map(k => `<div class="kpi">
+      <div class="kpi-top"><span class="kpi-lbl">${k.label}</span>${k.dot ? `<span class="kpi-dot" style="background:${k.dot}"></span>` : ''}</div>
+      <div class="kpi-val ${k.valCls}">${k.value}</div>
       ${k.sub ? `<div class="kpi-sub">${k.sub}</div>` : ''}
-    </div>`
-  ).join('');
+    </div>`).join('');
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
 function renderDashboard() {
-  const { m2, m3, t2, t3 } = getDDMaps();
-  const gross = trades.reduce((s,t) => s + t.pnl, 0);
-  const tx = trades.reduce((s,t) => s + t.tax, 0);
-  const net = gross - tx;
-  const mdd2 = t2.length ? Math.min(...t2.map(t => m2[t.id].dd)) : 0;
-  const mdd3 = t3.length ? Math.min(...t3.map(t => m3[t.id].dd)) : 0;
-
-  // Hero title
-  document.getElementById('dash-hero').textContent = (net >= 0 ? '+' : '−') + inr(Math.abs(net));
+  const a = accountTotals();
+  document.getElementById('hero-alltime').textContent = sig(a.allTimeNet);
+  document.getElementById('hero-active').textContent = sig(a.activeNet);
+  const runCount = portfolios.filter(p => p.active).length;
+  document.getElementById('hero-active-sub').textContent = runCount + ' running portfolio' + (runCount !== 1 ? 's' : '');
 
   renderKPIs('kpi-dash', [
-    { label: 'Net P&L', value: sig(net), valCls: net >= 0 ? 'kpi-pos' : 'kpi-neg', sub: 'Gross ' + sig(gross), cls: net >= 0 ? 'k-green' : 'k-red' },
-    { label: 'Total Taxes', value: inr(tx), valCls: 'kpi-neu', sub: trades.length + ' trade' + (trades.length !== 1 ? 's' : ''), cls: 'k-neutral' },
-    { label: '200% Max DD', value: mdd2 < 0 ? '−' + inr(Math.abs(mdd2)) : '—', valCls: mdd2 < 0 ? 'kpi-neg' : 'kpi-neu', sub: 'Peak-based', cls: mdd2 < 0 ? 'k-red' : 'k-neutral' },
-    { label: '300% Max DD', value: mdd3 < 0 ? '−' + inr(Math.abs(mdd3)) : '—', valCls: mdd3 < 0 ? 'kpi-neg' : 'kpi-neu', sub: 'Peak-based', cls: mdd3 < 0 ? 'k-red' : 'k-neutral' },
+    { label: 'All-time Net', value: sig(a.allTimeNet), valCls: a.allTimeNet >= 0 ? 'kpi-pos' : 'kpi-neg', sub: 'Gross ' + sig(a.gross) },
+    { label: 'Active Net', value: sig(a.activeNet), valCls: a.activeNet >= 0 ? 'kpi-pos' : 'kpi-neg', sub: runCount + ' running' },
+    { label: 'Adjustments', value: a.adjTotal === 0 ? '₹0' : sig(a.adjTotal), valCls: a.adjTotal === 0 ? 'kpi-neu' : a.adjTotal > 0 ? 'kpi-pos' : 'kpi-neg', sub: adjustments.length + ' sync' + (adjustments.length !== 1 ? 's' : '') },
+    { label: 'Total Taxes', value: inr(a.tax), valCls: 'kpi-neu', sub: trades.length + ' trade' + (trades.length !== 1 ? 's' : '') },
   ]);
 
+  // Running portfolios list
+  const running = portfolios.filter(p => p.active);
+  document.getElementById('run-tag').textContent = running.length + ' active';
+  const runEl = document.getElementById('run-list');
+  runEl.innerHTML = running.length ? `<div class="runlist">` + running.map(p => {
+    const set = new Set(p.strategyIds || []);
+    const n = trades.filter(t => set.has(t.strategyId)).reduce((s, t) => s + net(t), 0);
+    const col = (stratMap[(p.strategyIds || [])[0]] || {}).color || '#888';
+    return `<div class="runitem"><span class="cdot" style="background:${col}"></span>
+      <div class="ri-info"><div class="ri-sym">${esc(p.name)}</div><div class="ri-date">${(p.strategyIds || []).length} strategies</div></div>
+      <div class="ri-pnl ${pc(n)}">${sig(n)}</div></div>`;
+  }).join('') + `</div>` : `<div style="padding:18px;text-align:center;color:#555;font-size:13px">No portfolios running — toggle one on the Portfolios page</div>`;
+
   // Recent trades
-  const recent = [...trades].sort((a,b) => b.date.localeCompare(a.date)).slice(0, 6);
+  const recent = [...trades].sort((x, y) => y.date.localeCompare(x.date)).slice(0, 6);
   document.getElementById('recent-tag').textContent = recent.length + ' of ' + trades.length;
-  document.getElementById('recent-list').innerHTML = recent.length
-    ? recent.map(t => {
-        const n = t.pnl - t.tax;
-        return `<div class="recent-item">
-          <div class="ri-badge ri-${t.strat}">${t.strat}%</div>
-          <div class="ri-info">
-            <div class="ri-sym">${t.symbol || '—'}</div>
-            <div class="ri-date">${t.date} · ${t.lots} lots</div>
-          </div>
-          <div class="ri-pnl ${pc(n)}">${sig(n)}</div>
-        </div>`;
-      }).join('')
-    : `<div style="padding:20px;text-align:center;color:var(--text3);font-size:13px">No trades yet</div>`;
+  document.getElementById('recent-list').innerHTML = recent.length ? `<div class="runlist">` + recent.map(t => {
+    const s = stratOf(t), n = net(t);
+    return `<div class="runitem"><span class="cdot" style="background:${s.color}"></span>
+      <div class="ri-info"><div class="ri-sym">${esc(t.symbol || '—')}</div><div class="ri-date">${t.date} · ${esc(s.name)} · ${t.lots} lots</div></div>
+      <div class="ri-pnl ${pc(n)}">${sig(n)}</div></div>`;
+  }).join('') + `</div>` : `<div style="padding:18px;text-align:center;color:#555;font-size:13px">No trades yet</div>`;
 
-  // Charts
-  const sorted = [...trades].sort((a,b) => a.date.localeCompare(b.date));
+  // Combined curve
   killChart('dm');
+  const sorted = [...trades].sort((x, y) => x.date.localeCompare(y.date));
   if (sorted.length) {
-    let cum = 0;
-    const labels = [], data = [];
-    sorted.forEach(t => { cum += t.pnl - t.tax; labels.push(t.date); data.push(cum); });
-    const col = data[data.length-1] >= 0 ? '#16a34a' : '#dc2626';
+    let cum = 0; const labels = [], data = [];
+    sorted.forEach(t => { cum += net(t); labels.push(t.date); data.push(cum); });
+    const col = data[data.length - 1] >= 0 ? '#16a34a' : '#dc2626';
     charts['dm'] = new Chart(document.getElementById('ch-dash'), { type: 'line', data: { labels, datasets: [lineDS(data, col)] }, options: chartOpts() });
-  }
-
-  killChart('ds');
-  const smap = {};
-  trades.forEach(t => { const s = t.symbol || 'OTHER'; smap[s] = (smap[s]||0) + (t.pnl-t.tax); });
-  const se = Object.entries(smap).sort((a,b) => a[1]-b[1]);
-  if (se.length) {
-    charts['ds'] = new Chart(document.getElementById('ch-sym-dash'), {
-      type: 'bar',
-      data: { labels: se.map(e => e[0]), datasets: [{ data: se.map(e => e[1]), backgroundColor: se.map(e => e[1] >= 0 ? 'rgba(22,163,74,.15)' : 'rgba(220,38,38,.15)'), borderColor: se.map(e => e[1] >= 0 ? '#16a34a' : '#dc2626'), borderWidth: 1.5, borderRadius: 6 }] },
-      options: chartOpts()
-    });
   }
 }
 
 // ── All Trades ─────────────────────────────────────────────────────────────
 function buildDates() {
   const dates = [...new Set(trades.map(t => t.date))].sort();
-  ['fil-from','fil-to'].forEach(id => {
-    const el = document.getElementById(id);
-    const cur = el.value;
-    el.innerHTML = `<option value="">${id==='fil-from'?'From…':'To…'}</option>` + dates.map(d => `<option${d===cur?' selected':''}>${d}</option>`).join('');
+  ['fil-from', 'fil-to'].forEach(id => {
+    const el = document.getElementById(id); const cur = el.value;
+    el.innerHTML = `<option value="">${id === 'fil-from' ? 'From…' : 'To…'}</option>` + dates.map(d => `<option${d === cur ? ' selected' : ''}>${d}</option>`).join('');
   });
+  const fs = document.getElementById('fil-strat'); const cur = fs.value;
+  fs.innerHTML = `<option value="">All Strategies</option>` + Object.values(stratMap)
+    .map(s => `<option value="${s.id}"${s.id === cur ? ' selected' : ''}>${esc(s.name)}${s.virtual ? ' (legacy)' : ''}</option>`).join('');
 }
 
 function renderAllTrades() {
-  const fy = document.getElementById('fil-symbol').value;
-  const ff = document.getElementById('fil-from').value;
-  const ft = document.getElementById('fil-to').value;
-  const { m2, m3 } = getDDMaps();
-  const ddOf = t => t.strat === '200' ? m2[t.id] : m3[t.id];
+  const fStrat = (document.getElementById('fil-strat') || {}).value || '';
+  const fy = (document.getElementById('fil-symbol') || {}).value || '';
+  const ff = (document.getElementById('fil-from') || {}).value || '';
+  const ft = (document.getElementById('fil-to') || {}).value || '';
+  const dd = ddMapAll();
 
   let list = trades.filter(t => {
-    if (fStrat && t.strat !== fStrat) return false;
+    if (fStrat && keyOf(t) !== fStrat) return false;
     if (fy && t.symbol !== fy) return false;
     if (ff && t.date < ff) return false;
     if (ft && t.date > ft) return false;
-    const d = ddOf(t);
+    const d = dd[t.id], th = stratOf(t).threshold;
     if (fResult === 'loss' && t.pnl >= 0) return false;
     if (fResult === 'profit' && t.pnl <= 0) return false;
-    if (fResult === 'alert' && !isAlert(d)) return false;
+    if (fResult === 'alert' && !isAlert(d, th)) return false;
     return true;
-  }).sort((a,b) => {
-    const kv = t => ({date:t.date,pnl:t.pnl,net:t.pnl-t.tax,lots:t.lots}[sortKey] ?? 0);
-    const av=kv(a), bv=kv(b);
-    return av<bv?-sortDir:av>bv?sortDir:0;
+  }).sort((a, b) => {
+    const kv = t => ({ date: t.date, pnl: t.pnl, net: net(t), lots: t.lots }[sortKey] ?? 0);
+    const av = kv(a), bv = kv(b);
+    return av < bv ? -sortDir : av > bv ? sortDir : 0;
   });
 
   document.getElementById('all-sub').textContent = `${list.length} of ${trades.length} trades`;
   const tb = document.getElementById('tbody-all');
-  if (!list.length) { tb.innerHTML = emptyRow(12); renderSymTable(); return; }
-
-  tb.innerHTML = list.map((t,i) => {
-    const d = ddOf(t), net = t.pnl - t.tax, al = isAlert(d);
-    return `<tr class="${al?'tr-alert':t.pnl<0?'tr-loss':''}">
-      <td class="mono" style="text-align:center;color:var(--text3)">${i+1}</td>
+  tb.innerHTML = !list.length ? emptyRow(12, 'No trades match') : list.map((t, i) => {
+    const s = stratOf(t), d = dd[t.id], al = isAlert(d, s.threshold), n = net(t);
+    return `<tr class="${al ? 'tr-alert' : t.pnl < 0 ? 'tr-loss' : ''}">
+      <td class="mono" style="text-align:center;color:#555">${i + 1}</td>
       <td class="mono">${t.date}</td>
-      <td><span class="strat-tag st-${t.strat}">${t.strat}%</span></td>
-      <td><span class="sym-tag">${t.symbol||'—'}</span></td>
+      <td>${stratTag(s)}</td>
+      <td><span class="sym-tag">${esc(t.symbol || '—')}</span></td>
       <td class="mono">${t.lots}</td>
       <td class="${pc(t.pnl)}">${sig(t.pnl)}</td>
-      <td class="mono">${inr(t.tax)}</td>
-      <td class="${pc(net)}">${sig(net)}</td>
-      <td class="${pc(d?d.dd:0)}">${d&&d.dd<0?'−'+inr(Math.abs(d.dd)):'—'}</td>
-      <td>${ddCell(d)}</td>
-      <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text3);font-size:12px" title="${t.notes||''}">${t.notes||'—'}</td>
+      <td class="mono">${inr(t.tax || 0)}</td>
+      <td class="${pc(n)}">${sig(n)}</td>
+      <td class="${pc(d ? d.dd : 0)}">${d && d.dd < 0 ? '−' + inr(Math.abs(d.dd)) : '—'}</td>
+      <td>${ddCell(d, s.threshold)}</td>
+      <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#555;font-size:12px" title="${esc(t.notes)}">${esc(t.notes) || '—'}</td>
       <td><button class="del-btn" onclick="deleteTrade('${t.id}')">×</button></td>
     </tr>`;
   }).join('');
@@ -233,249 +267,717 @@ function renderAllTrades() {
 function renderSymTable() {
   const map = {};
   trades.forEach(t => {
-    const s = t.symbol||'OTHER';
-    if (!map[s]) map[s] = {n:0,g:0,tx:0,w:0,l:0};
-    map[s].n++; map[s].g+=t.pnl; map[s].tx+=t.tax;
-    t.pnl>=0?map[s].w++:map[s].l++;
+    const s = t.symbol || 'OTHER';
+    if (!map[s]) map[s] = { n: 0, g: 0, tx: 0, w: 0, l: 0 };
+    map[s].n++; map[s].g += (t.pnl || 0); map[s].tx += (t.tax || 0);
+    t.pnl >= 0 ? map[s].w++ : map[s].l++;
   });
-  const rows = Object.entries(map).sort((a,b)=>a[1].g-b[1].g);
-  document.getElementById('sym-count').textContent = rows.length + ' symbol' + (rows.length!==1?'s':'');
-  if (!rows.length) { document.getElementById('tbody-sym').innerHTML = emptyRow(8); return; }
-  document.getElementById('tbody-sym').innerHTML = rows.map(([sym,s]) => {
-    const net=s.g-s.tx, wr=s.n>0?Math.round(s.w/s.n*100):0;
-    return `<tr class="${net<0?'tr-loss':''}">
-      <td><span class="sym-tag">${sym}</span></td>
+  const rows = Object.entries(map).sort((a, b) => a[1].g - b[1].g);
+  document.getElementById('sym-count').textContent = rows.length + ' symbol' + (rows.length !== 1 ? 's' : '');
+  document.getElementById('tbody-sym').innerHTML = !rows.length ? emptyRow(8) : rows.map(([sym, s]) => {
+    const n = s.g - s.tx, wr = s.n > 0 ? Math.round(s.w / s.n * 100) : 0;
+    return `<tr class="${n < 0 ? 'tr-loss' : ''}">
+      <td><span class="sym-tag">${esc(sym)}</span></td>
       <td class="mono">${s.n}</td>
       <td class="${pc(s.g)}">${sig(s.g)}</td>
       <td class="mono">${inr(s.tx)}</td>
-      <td class="${pc(net)}">${sig(net)}</td>
+      <td class="${pc(n)}">${sig(n)}</td>
       <td class="mono" style="color:var(--green)">${s.w}</td>
       <td class="mono" style="color:var(--red)">${s.l}</td>
-      <td><div class="wr-row"><span class="mono ${wr>=50?'val-pos':'val-neg'}">${wr}%</span><div class="wr-bar"><div class="wr-fill" style="width:${wr}%;background:${wr>=50?'var(--green)':'var(--red)'}"></div></div></div></td>
+      <td><div class="wr-row"><span class="mono ${wr >= 50 ? 'vpos' : 'vneg'}">${wr}%</span><div class="wr-bar"><div class="wr-fill" style="width:${wr}%;background:${wr >= 50 ? 'var(--green)' : 'var(--red)'}"></div></div></div></td>
     </tr>`;
   }).join('');
 }
 
-// ── Strategy pages ─────────────────────────────────────────────────────────
-function renderStrat(strat) {
-  const arr = trades.filter(t => t.strat === strat).sort((a,b) => a.date.localeCompare(b.date));
+// ── Strategies page ──────────────────────────────────────────────────────────
+function strategyStats(s) {
+  const arr = trades.filter(t => keyOf(t) === s.id).sort((a, b) => a.date.localeCompare(b.date));
   const dds = computeDD(arr);
-  const tn = arr.reduce((s,t) => s+t.pnl-t.tax, 0);
-  const tx = arr.reduce((s,t) => s+t.tax, 0);
-  const mdd = dds.length ? Math.min(...dds.map(d=>d.dd)) : 0;
-  const al = dds.filter(d=>isAlert(d)).length;
+  return {
+    arr, dds, count: arr.length,
+    net: arr.reduce((x, t) => x + net(t), 0),
+    tax: arr.reduce((x, t) => x + (t.tax || 0), 0),
+    maxDD: dds.length ? Math.min(...dds.map(d => d.dd)) : 0,
+    alerts: dds.filter(d => isAlert(d, s.threshold)).length,
+  };
+}
 
-  renderKPIs('kpi-' + strat, [
-    { label:'Net P&L', value:sig(tn), valCls:tn>=0?'kpi-pos':'kpi-neg', sub:arr.length+' trades', cls:tn>=0?'k-green':'k-red' },
-    { label:'Total Taxes', value:inr(tx), valCls:'kpi-neu', cls:'k-neutral' },
-    { label:'Max Drawdown', value:mdd<0?'−'+inr(Math.abs(mdd)):'—', valCls:mdd<0?'kpi-neg':'kpi-neu', sub:'From all-time peak', cls:mdd<0?'k-red':'k-neutral' },
-    { label:'Delta Alerts', value:'×'+al, valCls:al>0?'kpi-warn':'kpi-neu', sub:'≥ '+inr(threshold)+'/lot', cls:al>0?'k-amber':'k-neutral' },
+function renderStrategies() {
+  document.getElementById('migrate-btn').style.display = hasLegacy() ? '' : 'none';
+  const list = Object.values(stratMap);
+  const el = document.getElementById('strat-cards');
+  if (!list.length) {
+    el.innerHTML = `<div class="card" style="grid-column:1/-1;text-align:center;padding:40px"><div style="color:#888;margin-bottom:14px">No strategies yet.</div><button class="btn-primary" onclick="openStrategyModal()">Create your first strategy</button></div>`;
+    return;
+  }
+  el.innerHTML = list.map(s => {
+    const st = strategyStats(s);
+    return `<div class="scard">
+      <div class="scard-open" onclick="openStrategy('${s.id}')"></div>
+      <div class="scard-top">
+        <div class="scard-name"><span class="cdot" style="background:${s.color}"></span><span>${esc(s.name)}</span></div>
+        <div class="scard-acts">
+          ${s.virtual ? `<span class="badge-legacy">Legacy</span>` :
+            `<button class="icon-btn" title="Edit" onclick="openStrategyModal('${s.id}')">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M9 1.5l2.5 2.5L4 11.5 1.5 12l.5-2.5L9 1.5z" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linejoin="round"/></svg>
+            </button>
+            <button class="icon-btn danger" title="Delete" onclick="deleteStrategy('${s.id}')">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2.5 3.5h8M5 3.5V2.3h3v1.2M3.5 3.5l.5 7.5h5l.5-7.5" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>`}
+        </div>
+      </div>
+      <div class="scard-net ${pc(st.net)}">${sig(st.net)}</div>
+      <div class="scard-meta">${st.count} trade${st.count !== 1 ? 's' : ''} · threshold ₹${fmt(s.threshold)}/lot</div>
+      <div class="scard-stats">
+        <span class="spill ${st.maxDD < 0 ? 'red' : ''}">Max DD ${st.maxDD < 0 ? '−' + inr(Math.abs(st.maxDD)) : '₹0'}</span>
+        <span class="spill ${st.alerts > 0 ? 'warn' : ''}">↑ ${st.alerts} alert${st.alerts !== 1 ? 's' : ''}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderStrategyDetail() {
+  const s = stratMap[curStratId];
+  if (!s) { goPage('strategies'); return; }
+  document.getElementById('sd-title').innerHTML = `<span class="cdot" style="display:inline-block;background:${s.color};margin-right:9px"></span>${esc(s.name)}`;
+  document.getElementById('sd-sub').textContent = `Delta threshold ₹${fmt(s.threshold)}/lot · Peak-based drawdown · never resets`;
+  const st = strategyStats(s);
+  renderKPIs('kpi-sd', [
+    { label: 'Net P&L', value: sig(st.net), valCls: st.net >= 0 ? 'kpi-pos' : 'kpi-neg', sub: st.count + ' trades', dot: s.color },
+    { label: 'Total Taxes', value: inr(st.tax), valCls: 'kpi-neu' },
+    { label: 'Max Drawdown', value: st.maxDD < 0 ? '−' + inr(Math.abs(st.maxDD)) : '—', valCls: st.maxDD < 0 ? 'kpi-neg' : 'kpi-neu', sub: 'From all-time peak' },
+    { label: 'Delta Alerts', value: '×' + st.alerts, valCls: st.alerts > 0 ? 'kpi-warn' : 'kpi-neu', sub: '≥ ' + inr(s.threshold) + '/lot' },
   ]);
 
-  const tb = document.getElementById('tbody-' + strat);
-  if (!arr.length) { tb.innerHTML = emptyRow(12); return; }
-  tb.innerHTML = arr.map((t,i) => {
-    const d=dds[i], net=t.pnl-t.tax;
-    return `<tr class="${isAlert(d)?'tr-alert':t.pnl<0?'tr-loss':''}">
-      <td class="mono" style="text-align:center;color:var(--text3)">${i+1}</td>
+  const tb = document.getElementById('tbody-sd');
+  tb.innerHTML = !st.arr.length ? emptyRow(12) : st.arr.map((t, i) => {
+    const d = st.dds[i], n = net(t);
+    return `<tr class="${isAlert(d, s.threshold) ? 'tr-alert' : t.pnl < 0 ? 'tr-loss' : ''}">
+      <td class="mono" style="text-align:center;color:#555">${i + 1}</td>
       <td class="mono">${t.date}</td>
-      <td><span class="sym-tag">${t.symbol||'—'}</span></td>
+      <td><span class="sym-tag">${esc(t.symbol || '—')}</span></td>
       <td class="mono">${t.lots}</td>
       <td class="${pc(t.pnl)}">${sig(t.pnl)}</td>
-      <td class="mono">${inr(t.tax)}</td>
-      <td class="${pc(net)}">${sig(net)}</td>
+      <td class="mono">${inr(t.tax || 0)}</td>
+      <td class="${pc(n)}">${sig(n)}</td>
       <td class="${pc(d.run)}">${sig(d.run)}</td>
       <td class="mono">${inr(d.peak)}</td>
-      <td class="${pc(d.dd)}">${d.dd<0?'−'+inr(Math.abs(d.dd)):'—'}</td>
-      <td>${ddCell(d)}</td>
-      <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text3);font-size:12px">${t.notes||'—'}</td>
+      <td class="${pc(d.dd)}">${d.dd < 0 ? '−' + inr(Math.abs(d.dd)) : '—'}</td>
+      <td>${ddCell(d, s.threshold)}</td>
+      <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#555;font-size:12px">${esc(t.notes) || '—'}</td>
     </tr>`;
+  }).join('');
+
+  killChart('sd');
+  if (st.arr.length) {
+    let cum = 0; const labels = [], data = [];
+    st.arr.forEach(t => { cum += net(t); labels.push(t.date); data.push(cum); });
+    charts['sd'] = new Chart(document.getElementById('ch-sd'), { type: 'line', data: { labels, datasets: [lineDS(data, s.color)] }, options: chartOpts() });
+  }
+}
+
+// ── Portfolios page ──────────────────────────────────────────────────────────
+function portfolioTrades(p) {
+  const set = new Set(p.strategyIds || []);
+  return trades.filter(t => set.has(t.strategyId)).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function renderPortfolios() {
+  const el = document.getElementById('pf-cards');
+  if (!portfolios.length) {
+    el.innerHTML = `<div class="card" style="grid-column:1/-1;text-align:center;padding:40px"><div style="color:#888;margin-bottom:14px">No portfolios yet. A portfolio bundles strategies together.</div><button class="btn-primary" onclick="openPortfolioModal()">Create a portfolio</button></div>`;
+    return;
+  }
+  el.innerHTML = portfolios.map(p => {
+    const arr = portfolioTrades(p);
+    const n = arr.reduce((s, t) => s + net(t), 0);
+    const chips = (p.strategyIds || []).map(id => {
+      const s = stratMap[id]; if (!s) return '';
+      return `<span class="pf-chip"><span class="cdot" style="background:${s.color}"></span>${esc(s.name)}</span>`;
+    }).join('');
+    return `<div class="scard">
+      <div class="scard-open" onclick="openPortfolio('${p.id}')"></div>
+      <div class="scard-top">
+        <div class="scard-name"><span>${esc(p.name)}</span></div>
+        <div class="scard-acts">
+          <button class="icon-btn" title="Edit" onclick="openPortfolioModal('${p.id}')">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M9 1.5l2.5 2.5L4 11.5 1.5 12l.5-2.5L9 1.5z" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="icon-btn danger" title="Delete" onclick="deletePortfolio('${p.id}')">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2.5 3.5h8M5 3.5V2.3h3v1.2M3.5 3.5l.5 7.5h5l.5-7.5" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="scard-net ${pc(n)}">${sig(n)}</div>
+      <div class="scard-meta">${arr.length} trade${arr.length !== 1 ? 's' : ''} · ${(p.strategyIds || []).length} strateg${(p.strategyIds || []).length !== 1 ? 'ies' : 'y'}</div>
+      <div class="pf-chips">${chips || '<span style="color:#555;font-size:11px">no strategies</span>'}</div>
+      <div class="switch-wrap">
+        <label class="switch">
+          <input type="checkbox" ${p.active ? 'checked' : ''} onchange="togglePortfolio('${p.id}',this.checked)">
+          <span class="track"></span><span class="knob"></span>
+        </label>
+        <span class="switch-lbl ${p.active ? 'on' : ''}">${p.active ? 'Running' : 'Off'}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderPortfolioDetail() {
+  const p = portfolios.find(x => x.id === curPfId);
+  if (!p) { goPage('portfolios'); return; }
+  document.getElementById('pd-title').textContent = p.name;
+  const arr = portfolioTrades(p);
+  const n = arr.reduce((s, t) => s + net(t), 0);
+  const gross = arr.reduce((s, t) => s + (t.pnl || 0), 0);
+  const tax = arr.reduce((s, t) => s + (t.tax || 0), 0);
+  document.getElementById('pd-sub').textContent = `${(p.strategyIds || []).length} strategies · ${p.active ? 'running' : 'not running'}`;
+  renderKPIs('kpi-pd', [
+    { label: 'Net P&L', value: sig(n), valCls: n >= 0 ? 'kpi-pos' : 'kpi-neg', sub: arr.length + ' trades' },
+    { label: 'Gross P&L', value: sig(gross), valCls: gross >= 0 ? 'kpi-pos' : 'kpi-neg' },
+    { label: 'Total Taxes', value: inr(tax), valCls: 'kpi-neu' },
+    { label: 'Strategies', value: '' + (p.strategyIds || []).length, valCls: 'kpi-neu', sub: p.active ? 'Running' : 'Off' },
+  ]);
+
+  const tb = document.getElementById('tbody-pd');
+  tb.innerHTML = !(p.strategyIds || []).length ? emptyRow(6, 'No strategies in this portfolio') : (p.strategyIds || []).map(id => {
+    const s = stratMap[id]; if (!s) return '';
+    const st = strategyStats(s);
+    return `<tr><td>${stratTag(s)}</td><td class="mono">${st.count}</td>
+      <td class="${pc(st.net + st.tax)}">${sig(st.net + st.tax)}</td>
+      <td class="mono">${inr(st.tax)}</td>
+      <td class="${pc(st.net)}">${sig(st.net)}</td>
+      <td class="${pc(st.maxDD)}">${st.maxDD < 0 ? '−' + inr(Math.abs(st.maxDD)) : '—'}</td></tr>`;
+  }).join('');
+
+  killChart('pd');
+  if (arr.length) {
+    let cum = 0; const labels = [], data = [];
+    arr.forEach(t => { cum += net(t); labels.push(t.date); data.push(cum); });
+    const col = data[data.length - 1] >= 0 ? '#16a34a' : '#dc2626';
+    charts['pd'] = new Chart(document.getElementById('ch-pd'), { type: 'line', data: { labels, datasets: [lineDS(data, col)] }, options: chartOpts() });
+  }
+}
+
+// ── Adjustments page ─────────────────────────────────────────────────────────
+function renderAdjustments() {
+  const a = accountTotals();
+  renderKPIs('kpi-adj', [
+    { label: 'Account Net (actual)', value: sig(a.allTimeNet), valCls: a.allTimeNet >= 0 ? 'kpi-pos' : 'kpi-neg', sub: 'Reconciled' },
+    { label: 'From Trades', value: sig(a.tradesNet), valCls: a.tradesNet >= 0 ? 'kpi-pos' : 'kpi-neg', sub: trades.length + ' trades' },
+    { label: 'Total Adjustments', value: a.adjTotal === 0 ? '₹0' : sig(a.adjTotal), valCls: a.adjTotal === 0 ? 'kpi-neu' : a.adjTotal > 0 ? 'kpi-pos' : 'kpi-neg', sub: adjustments.length + ' records' },
+    { label: 'Last Sync', value: adjustments.length ? adjustments[adjustments.length - 1].date : '—', valCls: 'kpi-neu' },
+  ]);
+
+  // Running account net after each adjustment (chronological)
+  const ordered = [...adjustments].sort((x, y) => x.date.localeCompare(y.date));
+  const tb = document.getElementById('tbody-adj');
+  tb.innerHTML = !ordered.length ? emptyRow(7, 'No adjustments yet — use Sync P&L to reconcile') : ordered.map((adj, i) => {
+    const amt = adj.amount || 0;
+    return `<tr><td class="mono" style="text-align:center;color:#555">${i + 1}</td>
+      <td class="mono">${adj.date}</td>
+      <td class="mono">${sig(adj.actualPnl || 0)}</td>
+      <td class="adj-amt ${pc(amt)}">${sig(amt)}</td>
+      <td class="mono">${sig(adj.actualPnl || 0)}</td>
+      <td style="color:#888;font-size:12px">${esc(adj.note) || '—'}</td>
+      <td><button class="del-btn" onclick="deleteAdjustment('${adj.id}')">×</button></td></tr>`;
   }).join('');
 }
 
 // ── Charts ─────────────────────────────────────────────────────────────────
 function killChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
-
-function chartOpts(extra={}) {
-  return {
-    plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>' ₹'+(c.parsed.y??0).toLocaleString('en-IN')}}, ...extra.plugins },
-    scales:{
-      x:{ grid:{color:'rgba(160,160,210,.12)',lineWidth:.5}, ticks:{font:{size:10,family:"'JetBrains Mono',monospace"},color:'#a3a3a3',maxTicksLimit:7} },
-      y:{ grid:{color:'rgba(160,160,210,.12)',lineWidth:.5}, ticks:{font:{size:10,family:"'JetBrains Mono',monospace"},color:'#a3a3a3',callback:v=>'₹'+v.toLocaleString('en-IN')} }
-    },
-    animation:{duration:400}, responsive:true, maintainAspectRatio:false, ...extra
-  };
-}
-
 function lineDS(data, color) {
-  return { data, borderColor:color, backgroundColor:color+'22', fill:true, pointRadius:3, pointBackgroundColor:color, pointBorderColor:'transparent', tension:.4, borderWidth:2.5 };
+  return { data, borderColor: color, backgroundColor: color + '22', fill: true, pointRadius: 3, pointBackgroundColor: color, pointBorderColor: 'transparent', tension: .4, borderWidth: 2.5 };
+}
+function chartOpts(extra = {}) {
+  return {
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ₹' + (c.parsed.y ?? 0).toLocaleString('en-IN') } }, ...extra.plugins },
+    scales: {
+      x: { grid: { color: 'rgba(160,160,210,.12)', lineWidth: .5 }, ticks: { font: { size: 10, family: "'DM Mono',monospace" }, color: '#a3a3a3', maxTicksLimit: 7 } },
+      y: { grid: { color: 'rgba(160,160,210,.12)', lineWidth: .5 }, ticks: { font: { size: 10, family: "'DM Mono',monospace" }, color: '#a3a3a3', callback: v => '₹' + v.toLocaleString('en-IN') } }
+    },
+    animation: { duration: 400 }, responsive: true, maintainAspectRatio: false, ...extra
+  };
 }
 
 function renderCharts() {
-  const sorted = [...trades].sort((a,b)=>a.date.localeCompare(b.date));
-  const t2=sorted.filter(t=>t.strat==='200'), t3=sorted.filter(t=>t.strat==='300');
-
-  const mkLine = (arr, canvasId, key) => {
-    killChart(key);
-    if (!arr.length) return;
-    let cum=0; const labels=[], data=[];
-    arr.forEach(t=>{cum+=t.pnl-t.tax;labels.push(t.date);data.push(cum);});
-    const col = data[data.length-1]>=0?'#16a34a':'#dc2626';
-    charts[key] = new Chart(document.getElementById(canvasId),{type:'line',data:{labels,datasets:[lineDS(data,col)]},options:chartOpts()});
-  };
-
-  mkLine(sorted,'ch-combined','cc');
-  mkLine(t2,'ch-200','c2');
-  mkLine(t3,'ch-300','c3');
-
-  killChart('cs');
-  const smap={};
-  trades.forEach(t=>{const s=t.symbol||'OTHER';smap[s]=(smap[s]||0)+(t.pnl-t.tax);});
-  const se=Object.entries(smap).sort((a,b)=>a[1]-b[1]);
-  if (se.length) {
-    charts['cs']=new Chart(document.getElementById('ch-sym'),{type:'bar',data:{labels:se.map(e=>e[0]),datasets:[{data:se.map(e=>e[1]),backgroundColor:se.map(e=>e[1]>=0?'rgba(22,163,74,.15)':'rgba(220,38,38,.15)'),borderColor:se.map(e=>e[1]>=0?'#16a34a':'#dc2626'),borderWidth:1.5,borderRadius:6}]},options:chartOpts()});
+  const sorted = [...trades].sort((a, b) => a.date.localeCompare(b.date));
+  killChart('cc');
+  if (sorted.length) {
+    let cum = 0; const labels = [], data = [];
+    sorted.forEach(t => { cum += net(t); labels.push(t.date); data.push(cum); });
+    const col = data[data.length - 1] >= 0 ? '#16a34a' : '#dc2626';
+    charts['cc'] = new Chart(document.getElementById('ch-combined'), { type: 'line', data: { labels, datasets: [lineDS(data, col)] }, options: chartOpts() });
   }
 
+  // P&L by strategy (multi-line, shared date axis)
+  killChart('bs');
+  const allDates = [...new Set(trades.map(t => t.date))].sort();
+  if (allDates.length) {
+    const dsets = Object.values(stratMap).map(s => {
+      const arr = trades.filter(t => keyOf(t) === s.id).sort((a, b) => a.date.localeCompare(b.date));
+      if (!arr.length) return null;
+      const byDate = {}; let cum = 0;
+      arr.forEach(t => { cum += net(t); byDate[t.date] = cum; });
+      let last = 0; const data = allDates.map(d => { if (byDate[d] !== undefined) last = byDate[d]; return arr[0].date <= d ? last : null; });
+      return { ...lineDS(data, s.color), label: s.name, fill: false, spanGaps: true, pointRadius: 0, borderWidth: 2 };
+    }).filter(Boolean);
+    if (dsets.length) charts['bs'] = new Chart(document.getElementById('ch-bystrat'), { type: 'line', data: { labels: allDates, datasets: dsets }, options: chartOpts({ plugins: { legend: { display: true, labels: { font: { size: 11 }, color: '#a3a3a3', boxWidth: 10 } } } }) });
+  }
+
+  // By symbol bar
+  killChart('cs');
+  const smap = {};
+  trades.forEach(t => { const s = t.symbol || 'OTHER'; smap[s] = (smap[s] || 0) + net(t); });
+  const se = Object.entries(smap).sort((a, b) => a[1] - b[1]);
+  if (se.length) {
+    charts['cs'] = new Chart(document.getElementById('ch-sym'), {
+      type: 'bar',
+      data: { labels: se.map(e => e[0]), datasets: [{ data: se.map(e => e[1]), backgroundColor: se.map(e => e[1] >= 0 ? 'rgba(22,163,74,.15)' : 'rgba(220,38,38,.15)'), borderColor: se.map(e => e[1] >= 0 ? '#16a34a' : '#dc2626'), borderWidth: 1.5, borderRadius: 6 }] },
+      options: chartOpts()
+    });
+  }
+
+  // DD timeline per strategy
   killChart('cd');
-  if (sorted.length) {
-    const {m2,m3}=getDDMaps();
-    const labels=[],d2=[],d3=[];
-    sorted.forEach(t=>{labels.push(t.date);if(t.strat==='200'){d2.push(m2[t.id]?.dd??0);d3.push(null);}else{d3.push(m3[t.id]?.dd??0);d2.push(null);}});
-    charts['cd']=new Chart(document.getElementById('ch-dd'),{type:'line',data:{labels,datasets:[{...lineDS(d2,'#f97316'),label:'200%',spanGaps:true},{...lineDS(d3,'#737373'),label:'300%',spanGaps:true}]},options:chartOpts({plugins:{legend:{display:true,labels:{font:{size:11},color:'#a3a3a3'}}}})});
+  if (allDates.length) {
+    const dd = ddMapAll();
+    const dsets = Object.values(stratMap).map(s => {
+      const arr = trades.filter(t => keyOf(t) === s.id).sort((a, b) => a.date.localeCompare(b.date));
+      if (!arr.length) return null;
+      const byDate = {};
+      arr.forEach(t => { byDate[t.date] = (dd[t.id] || {}).dd ?? 0; });
+      const data = allDates.map(d => byDate[d] !== undefined ? byDate[d] : null);
+      return { ...lineDS(data, s.color), label: s.name, fill: false, spanGaps: true, pointRadius: 0, borderWidth: 2 };
+    }).filter(Boolean);
+    if (dsets.length) charts['cd'] = new Chart(document.getElementById('ch-dd'), { type: 'line', data: { labels: allDates, datasets: dsets }, options: chartOpts({ plugins: { legend: { display: true, labels: { font: { size: 11 }, color: '#a3a3a3', boxWidth: 10 } } } }) });
   }
 }
 
-// ── Render all ─────────────────────────────────────────────────────────────
+// ── Render dispatch ──────────────────────────────────────────────────────────
 function renderAll() {
+  buildStratMap();
   buildDates();
   renderDashboard();
   renderAllTrades();
-  renderStrat('200');
-  renderStrat('300');
+  renderStrategies();
+  renderPortfolios();
+  renderAdjustments();
+  if (curPage === 'strategy-detail') renderStrategyDetail();
+  if (curPage === 'portfolio-detail') renderPortfolioDetail();
+  if (curPage === 'charts') renderCharts();
 }
 
-// ── Navigation ─────────────────────────────────────────────────────────────
-window.goPage = function(name) {
+// ── Navigation ───────────────────────────────────────────────────────────────
+window.goPage = function (name) {
+  curPage = name;
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-item,.bnav').forEach(el => el.classList.toggle('active', el.dataset.page === name));
+  const navName = (name === 'strategy-detail') ? 'strategies' : (name === 'portfolio-detail') ? 'portfolios' : name;
+  document.querySelectorAll('.sb-item,.bn').forEach(el => el.classList.toggle('active', el.dataset.page === navName));
   const pg = document.getElementById('page-' + name);
   if (pg) pg.classList.add('active');
-  if (name === 'charts') setTimeout(renderCharts, 80);
+  if (name === 'charts') setTimeout(renderCharts, 60);
+  if (name === 'strategy-detail') renderStrategyDetail();
+  if (name === 'portfolio-detail') renderPortfolioDetail();
   closeDrawer();
+  document.getElementById('content').scrollTop = 0;
 };
+window.openStrategy = function (id) { curStratId = id; goPage('strategy-detail'); };
+window.openPortfolio = function (id) { curPfId = id; goPage('portfolio-detail'); };
 
-// ── Drawer ─────────────────────────────────────────────────────────────────
-window.openDrawer = function() {
-  document.getElementById('sidebar').classList.add('open');
-  document.getElementById('drawer-bd').classList.add('show');
-};
-window.closeDrawer = function() {
-  document.getElementById('sidebar').classList.remove('open');
-  document.getElementById('drawer-bd').classList.remove('show');
-};
+// ── Drawer ───────────────────────────────────────────────────────────────────
+window.openDrawer = function () { document.getElementById('sidebar').classList.add('open'); document.getElementById('drawer-bd').classList.add('show'); };
+window.closeDrawer = function () { document.getElementById('sidebar').classList.remove('open'); document.getElementById('drawer-bd').classList.remove('show'); };
 
-// ── Modal (Add Trade) ──────────────────────────────────────────────────────
-window.openModal = function() {
+// ── Generic modal ────────────────────────────────────────────────────────────
+function openModal(title, bodyHTML, footHTML) {
+  document.getElementById('modal-title-text').textContent = title;
+  document.getElementById('modal-body').innerHTML = bodyHTML;
+  document.getElementById('modal-foot').innerHTML = footHTML;
   document.getElementById('modal').classList.add('open');
   document.getElementById('modal-bd').classList.add('show');
-};
-window.closeModal = function() {
-  document.getElementById('modal').classList.remove('open');
-  document.getElementById('modal-bd').classList.remove('show');
-};
+}
+window.closeModal = function () { document.getElementById('modal').classList.remove('open'); document.getElementById('modal-bd').classList.remove('show'); };
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeDrawer(); } });
 
-// ── Filters ────────────────────────────────────────────────────────────────
-window.setF = function(key, val) {
-  if (key === 'strat') { fStrat = fStrat===val?'':val; document.querySelectorAll('[data-key="strat"]').forEach(b=>b.classList.toggle('active',b.dataset.val===fStrat)); }
-  if (key === 'result') { fResult = fResult===val?'':val; document.querySelectorAll('[data-key="result"]').forEach(b=>b.classList.toggle('active',b.dataset.val===fResult)); }
+const today = () => new Date().toISOString().split('T')[0];
+
+// ── Add Trade modal ──────────────────────────────────────────────────────────
+window.openTradeModal = function () {
+  const opts = realStrategies();
+  if (!opts.length) {
+    openModal('Add Trade', `<div style="color:#888;font-size:14px;line-height:1.6">You need at least one strategy before adding a trade.</div>`,
+      `<button class="btn-ghost" onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="closeModal();goPage('strategies');openStrategyModal()">Create Strategy</button>`);
+    return;
+  }
+  openModal('New Trade', `
+    <div class="mrow">
+      <div class="mf"><label>Date</label><input type="date" id="f-date" value="${today()}"></div>
+      <div class="mf"><label>Strategy</label><select id="f-strat">${opts.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></div>
+    </div>
+    <div class="mrow">
+      <div class="mf"><label>Symbol</label><select id="f-symbol"><option>NIFTY</option><option>BANKNIFTY</option><option>FINNIFTY</option><option>MIDCPNIFTY</option><option>SENSEX</option><option>BANKEX</option><option>OTHER</option></select></div>
+      <div class="mf"><label>Lots</label><input type="number" id="f-lots" placeholder="e.g. 2" min="0.1" step="0.1"></div>
+    </div>
+    <div class="mrow">
+      <div class="mf"><label>Gross P&L (₹)</label><input type="number" id="f-pnl" placeholder="e.g. −1500"></div>
+      <div class="mf"><label>Taxes (₹)</label><input type="number" id="f-tax" placeholder="e.g. 68" min="0"></div>
+    </div>
+    <div class="mf"><label>Notes <em>(optional)</em></label><input type="text" id="f-notes" placeholder="anything…"></div>`,
+    `<button class="btn-ghost" onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="addTrade()">Add Trade</button>`);
+};
+
+window.addTrade = async function () {
+  const date = document.getElementById('f-date').value;
+  const strategyId = document.getElementById('f-strat').value;
+  const symbol = document.getElementById('f-symbol').value;
+  const lots = parseFloat(document.getElementById('f-lots').value);
+  const pnl = parseFloat(document.getElementById('f-pnl').value);
+  const tax = parseFloat(document.getElementById('f-tax').value) || 0;
+  const notes = document.getElementById('f-notes').value.trim();
+  if (!date) return showToast('Enter a date');
+  if (!strategyId) return showToast('Pick a strategy');
+  if (!lots || lots <= 0) return showToast('Enter valid lots');
+  if (isNaN(pnl)) return showToast('Enter P&L');
+  setSyncState('syncing');
+  try { await addDoc(collection(db, 'trades'), { date, strategyId, symbol, lots, pnl, tax, notes }); closeModal(); showToast('Trade added ✓'); }
+  catch (e) { setSyncState('error'); showToast('Error — check connection'); console.error(e); }
+};
+
+window.deleteTrade = async function (id) {
+  if (!confirm('Delete this trade?')) return;
+  setSyncState('syncing');
+  try { await deleteDoc(doc(db, 'trades', id)); showToast('Trade removed'); }
+  catch (e) { setSyncState('error'); showToast('Error'); }
+};
+
+// ── Strategy modal ───────────────────────────────────────────────────────────
+let pickedColor = PALETTE[0];
+window.openStrategyModal = function (id) {
+  const editing = id ? strategies.find(s => s.id === id) : null;
+  pickedColor = editing ? editing.color : PALETTE[strategies.length % PALETTE.length];
+  openModal(editing ? 'Edit Strategy' : 'New Strategy', `
+    <div class="mf"><label>Name</label><input type="text" id="s-name" placeholder="e.g. 200% Strategy" value="${editing ? esc(editing.name) : ''}"></div>
+    <div class="mf"><label>Delta threshold (₹ per lot)</label><input type="number" id="s-thr" min="1" step="100" value="${editing ? editing.threshold : DEFAULT_THRESHOLD}"></div>
+    <div class="mf"><label>Colour</label><div class="color-row" id="s-colors">${PALETTE.map(c => `<div class="color-sw${c === pickedColor ? ' sel' : ''}" style="background:${c}" onclick="pickColor('${c}')"></div>`).join('')}</div></div>`,
+    `<button class="btn-ghost" onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="saveStrategy(${editing ? `'${id}'` : 'null'})">${editing ? 'Save' : 'Create'}</button>`);
+};
+window.pickColor = function (c) {
+  pickedColor = c;
+  document.querySelectorAll('#s-colors .color-sw').forEach(el => el.classList.toggle('sel', el.style.background === c || rgbHex(el.style.background) === c));
+};
+function rgbHex(rgb) { const m = rgb.match(/\d+/g); if (!m) return rgb; return '#' + m.slice(0, 3).map(x => (+x).toString(16).padStart(2, '0')).join(''); }
+
+window.saveStrategy = async function (id) {
+  const name = document.getElementById('s-name').value.trim();
+  const threshold = parseFloat(document.getElementById('s-thr').value);
+  if (!name) return showToast('Enter a name');
+  if (!threshold || threshold < 1) return showToast('Enter a valid threshold');
+  setSyncState('syncing');
+  try {
+    if (id) await updateDoc(doc(db, 'strategies', id), { name, threshold, color: pickedColor });
+    else await addDoc(collection(db, 'strategies'), { name, threshold, color: pickedColor, createdAt: Date.now() });
+    closeModal(); showToast(id ? 'Strategy saved ✓' : 'Strategy created ✓');
+  } catch (e) { setSyncState('error'); showToast('Error'); console.error(e); }
+};
+
+window.deleteStrategy = async function (id) {
+  const used = trades.filter(t => t.strategyId === id).length;
+  const inPf = portfolios.filter(p => (p.strategyIds || []).includes(id)).length;
+  let msg = 'Delete this strategy?';
+  if (used) msg += `\n\n${used} trade(s) use it — they will become Unassigned (not deleted).`;
+  if (inPf) msg += `\n${inPf} portfolio(s) reference it.`;
+  if (!confirm(msg)) return;
+  setSyncState('syncing');
+  try {
+    await deleteDoc(doc(db, 'strategies', id));
+    // strip from portfolios
+    await Promise.all(portfolios.filter(p => (p.strategyIds || []).includes(id))
+      .map(p => updateDoc(doc(db, 'portfolios', p.id), { strategyIds: p.strategyIds.filter(x => x !== id) })));
+    showToast('Strategy deleted');
+  } catch (e) { setSyncState('error'); showToast('Error'); }
+};
+
+// ── Portfolio modal ──────────────────────────────────────────────────────────
+let pickedStrats = new Set();
+window.openPortfolioModal = function (id) {
+  const editing = id ? portfolios.find(p => p.id === id) : null;
+  pickedStrats = new Set(editing ? (editing.strategyIds || []) : []);
+  const opts = realStrategies();
+  const list = opts.length ? opts.map(s => `
+    <div class="ms-item${pickedStrats.has(s.id) ? ' sel' : ''}" data-id="${s.id}" onclick="toggleStrat('${s.id}')">
+      <span class="ms-check"><svg width="11" height="11" viewBox="0 0 11 11" fill="none"><polyline points="2,6 4.5,8.5 9,2.5" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span class="cdot" style="background:${s.color}"></span>
+      <span class="ms-name">${esc(s.name)}</span>
+    </div>`).join('') : `<div class="ms-empty">No strategies yet — create one first.</div>`;
+  openModal(editing ? 'Edit Portfolio' : 'New Portfolio', `
+    <div class="mf"><label>Portfolio name</label><input type="text" id="p-name" placeholder="e.g. Core combo" value="${editing ? esc(editing.name) : ''}"></div>
+    <div class="mf"><label>Strategies in this portfolio</label><div class="ms-grid" id="p-strats">${list}</div></div>
+    <div class="switch-wrap" style="margin-top:2px">
+      <label class="switch"><input type="checkbox" id="p-active" ${editing ? (editing.active ? 'checked' : '') : 'checked'}><span class="track"></span><span class="knob"></span></label>
+      <span class="switch-lbl on">Mark as running</span>
+    </div>`,
+    `<button class="btn-ghost" onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="savePortfolio(${editing ? `'${id}'` : 'null'})">${editing ? 'Save' : 'Create'}</button>`);
+};
+window.toggleStrat = function (id) {
+  if (pickedStrats.has(id)) pickedStrats.delete(id); else pickedStrats.add(id);
+  const el = document.querySelector(`#p-strats .ms-item[data-id="${id}"]`);
+  if (el) el.classList.toggle('sel', pickedStrats.has(id));
+};
+window.savePortfolio = async function (id) {
+  const name = document.getElementById('p-name').value.trim();
+  const active = document.getElementById('p-active').checked;
+  const strategyIds = [...pickedStrats];
+  if (!name) return showToast('Enter a name');
+  if (!strategyIds.length) return showToast('Pick at least one strategy');
+  setSyncState('syncing');
+  try {
+    if (id) await updateDoc(doc(db, 'portfolios', id), { name, strategyIds, active });
+    else await addDoc(collection(db, 'portfolios'), { name, strategyIds, active, createdAt: Date.now() });
+    closeModal(); showToast(id ? 'Portfolio saved ✓' : 'Portfolio created ✓');
+  } catch (e) { setSyncState('error'); showToast('Error'); console.error(e); }
+};
+window.togglePortfolio = async function (id, on) {
+  try { await updateDoc(doc(db, 'portfolios', id), { active: on }); showToast(on ? 'Running' : 'Stopped'); }
+  catch (e) { showToast('Error'); }
+};
+window.deletePortfolio = async function (id) {
+  if (!confirm('Delete this portfolio? (Trades and strategies are not affected.)')) return;
+  setSyncState('syncing');
+  try { await deleteDoc(doc(db, 'portfolios', id)); showToast('Portfolio deleted'); }
+  catch (e) { setSyncState('error'); showToast('Error'); }
+};
+
+// ── Sync P&L (adjustment) modal ──────────────────────────────────────────────
+window.openSyncModal = function () {
+  const a = accountTotals();
+  openModal('Sync P&L', `
+    <div style="font-size:13px;color:#888;line-height:1.6;margin-bottom:4px">Enter your <b style="color:#ccc">actual total account P&L</b> right now. The difference is logged as an adjustment so the account net matches your real number. It is not added under any strategy.</div>
+    <div class="mrow">
+      <div class="mf"><label>Date</label><input type="date" id="a-date" value="${today()}"></div>
+      <div class="mf"><label>Actual total P&L (₹)</label><input type="number" id="a-actual" placeholder="e.g. 18500" oninput="syncPreview()"></div>
+    </div>
+    <div class="mf"><label>Note <em>(optional)</em></label><input type="text" id="a-note" placeholder="e.g. broker statement reconcile"></div>
+    <div class="sync-box">
+      <div class="sync-line"><span class="k">Computed now (trades + adjustments)</span><span class="v" id="sp-now">${sig(a.allTimeNet)}</span></div>
+      <div class="sync-line"><span class="k">You're entering</span><span class="v" id="sp-actual">—</span></div>
+      <div class="sync-line delta"><span class="k">Adjustment to log</span><span class="v" id="sp-delta">—</span></div>
+    </div>`,
+    `<button class="btn-ghost" onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="addAdjustment()">Log Adjustment</button>`);
+  syncPreview();
+};
+window.syncPreview = function () {
+  const a = accountTotals();
+  const v = parseFloat(document.getElementById('a-actual').value);
+  const actEl = document.getElementById('sp-actual'), dEl = document.getElementById('sp-delta');
+  if (isNaN(v)) { actEl.textContent = '—'; dEl.textContent = '—'; dEl.className = 'v'; return; }
+  const delta = v - a.allTimeNet;
+  actEl.textContent = sig(v);
+  dEl.textContent = sig(delta);
+  dEl.className = 'v ' + (delta > 0 ? 'vpos' : delta < 0 ? 'vneg' : 'vneu');
+};
+window.addAdjustment = async function () {
+  const date = document.getElementById('a-date').value;
+  const actualPnl = parseFloat(document.getElementById('a-actual').value);
+  const note = document.getElementById('a-note').value.trim();
+  if (!date) return showToast('Enter a date');
+  if (isNaN(actualPnl)) return showToast('Enter actual P&L');
+  const a = accountTotals();
+  const amount = actualPnl - a.allTimeNet;
+  if (amount === 0) return showToast('Already in sync — no adjustment needed');
+  setSyncState('syncing');
+  try { await addDoc(collection(db, 'adjustments'), { date, actualPnl, amount, note }); closeModal(); showToast('Adjustment logged ✓'); }
+  catch (e) { setSyncState('error'); showToast('Error'); console.error(e); }
+};
+window.deleteAdjustment = async function (id) {
+  if (!confirm('Delete this adjustment?')) return;
+  setSyncState('syncing');
+  try { await deleteDoc(doc(db, 'adjustments', id)); showToast('Adjustment removed'); }
+  catch (e) { setSyncState('error'); showToast('Error'); }
+};
+
+// ── Migrate legacy 200/300 trades to real strategies ─────────────────────────
+window.migrateLegacy = async function () {
+  const legacy = trades.filter(t => !t.strategyId && t.strat);
+  if (!legacy.length) return showToast('Nothing to migrate');
+  if (!confirm(`Migrate ${legacy.length} legacy trade(s) into real strategies? This creates strategies for 200/300 and links the trades.`)) return;
+  setSyncState('syncing');
+  try {
+    const tags = [...new Set(legacy.map(t => t.strat))];
+    const tagToId = {};
+    for (const tag of tags) {
+      let s = strategies.find(x => x.legacyTag === tag);
+      if (!s) {
+        const ref = await addDoc(collection(db, 'strategies'), {
+          name: tag + '% Strategy', threshold: DEFAULT_THRESHOLD,
+          color: tag === '200' ? '#f97316' : tag === '300' ? '#737373' : PALETTE[0],
+          legacyTag: tag, createdAt: Date.now(),
+        });
+        tagToId[tag] = ref.id;
+      } else tagToId[tag] = s.id;
+    }
+    await Promise.all(legacy.map(t => updateDoc(doc(db, 'trades', t.id), { strategyId: tagToId[t.strat] })));
+    showToast('Migrated ✓');
+  } catch (e) { setSyncState('error'); showToast('Migration error'); console.error(e); }
+};
+
+// ── Filters / sort / csv / toast ─────────────────────────────────────────────
+window.setF = function (key, val) {
+  if (key === 'result') { fResult = fResult === val ? '' : val; document.querySelectorAll('[data-key="result"]').forEach(b => b.classList.toggle('on', b.dataset.val === fResult)); }
   renderAllTrades();
 };
-window.clearFilters = function() {
-  fStrat=''; fResult='';
-  ['fil-symbol','fil-from','fil-to'].forEach(id=>document.getElementById(id).value='');
-  document.querySelectorAll('[data-key]').forEach(b=>b.classList.toggle('active',b.dataset.val===''));
+window.clearFilters = function () {
+  fResult = '';
+  ['fil-strat', 'fil-symbol', 'fil-from', 'fil-to'].forEach(id => { const e = document.getElementById(id); if (e) e.value = ''; });
+  document.querySelectorAll('[data-key="result"]').forEach(b => b.classList.remove('on'));
+  renderAllTrades();
+};
+window.sortBy = function (key) {
+  if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = 1; }
+  ['date', 'pnl', 'net', 'lots'].forEach(k => { const el = document.getElementById('th-' + k); if (el) el.className = 'th-sort' + (k === sortKey ? (sortDir === 1 ? ' s-asc' : ' s-desc') : ''); });
   renderAllTrades();
 };
 
-// ── Sort ───────────────────────────────────────────────────────────────────
-window.sortBy = function(key) {
-  if (sortKey===key) sortDir*=-1; else {sortKey=key;sortDir=1;}
-  ['date','pnl','net','lots'].forEach(k=>{const el=document.getElementById('th-'+k);if(el)el.className=k===sortKey?'sort '+(sortDir===1?'s-asc':'s-desc'):'sort';});
-  renderAllTrades();
+window.exportCSV = function () {
+  if (!trades.length) return showToast('No trades');
+  const dd = ddMapAll();
+  const rows = [['#', 'Date', 'Strategy', 'Symbol', 'Lots', 'Gross P&L', 'Taxes', 'Net P&L', 'Drawdown', 'DD/Lot', 'Delta Alert', 'Notes']];
+  [...trades].sort((a, b) => a.date.localeCompare(b.date)).forEach((t, i) => {
+    const s = stratOf(t), d = dd[t.id];
+    rows.push([i + 1, t.date, s.name, t.symbol || '', t.lots, t.pnl, t.tax || 0, net(t), d ? d.dd : 0, d ? d.ddpl : 0, (d && isAlert(d, s.threshold)) ? 'YES' : 'NO', t.notes || '']);
+  });
+  if (adjustments.length) {
+    rows.push([]); rows.push(['ADJUSTMENTS']); rows.push(['#', 'Date', 'Actual P&L', 'Adjustment', 'Note']);
+    [...adjustments].sort((a, b) => a.date.localeCompare(b.date)).forEach((a, i) => rows.push([i + 1, a.date, a.actualPnl, a.amount, a.note || '']));
+  }
+  const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  link.download = 'tradejournal_' + today() + '.csv';
+  link.click(); showToast('CSV exported');
 };
 
-// ── Add trade ──────────────────────────────────────────────────────────────
-window.addTrade = async function() {
-  const date=document.getElementById('f-date').value;
-  const strat=document.getElementById('f-strat').value;
-  const symbol=document.getElementById('f-symbol').value;
-  const lots=parseFloat(document.getElementById('f-lots').value);
-  const pnl=parseFloat(document.getElementById('f-pnl').value);
-  const tax=parseFloat(document.getElementById('f-tax').value)||0;
-  const notes=document.getElementById('f-notes').value.trim();
+// ── CSV import (reads the app's own export format, old or new) ────────────────
+function parseCSV(text) {
+  const rows = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+    else if (c === '"') q = true;
+    else if (c === ',') { row.push(cur); cur = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; if (cur !== '' || row.length) { row.push(cur); rows.push(row); row = []; cur = ''; } }
+    else cur += c;
+  }
+  if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+  return rows.map(r => r.map(c => c.trim()));
+}
 
-  if (!date){showToast('Enter a date');return;}
-  if (!lots||lots<=0){showToast('Enter valid lots');return;}
-  if (isNaN(pnl)){showToast('Enter P&L');return;}
+window.onCsvFile = async function (e) {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  let text; try { text = await file.text(); } catch (_) { return showToast('Could not read file'); }
+  const rows = parseCSV(text);
+  if (rows.length < 2) return showToast('Empty CSV');
+
+  const hi = rows.findIndex(r => r.includes('Date') && (r.includes('Gross P&L') || r.includes('Lots')));
+  if (hi < 0) return showToast('Unrecognised CSV format');
+  const H = rows[hi], col = n => H.indexOf(n);
+  const cD = col('Date'), cS = col('Strategy'), cSym = col('Symbol'), cL = col('Lots'), cG = col('Gross P&L'), cT = col('Taxes'), cN = col('Notes');
+  if (cD < 0 || cL < 0 || cG < 0) return showToast('CSV missing required columns');
+
+  const tRows = []; let adjStart = -1;
+  for (let i = hi + 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r.length || r.every(c => c === '')) continue;
+    if (r[0] === 'ADJUSTMENTS') { adjStart = i; break; }
+    if (!r[cD]) continue;
+    tRows.push(r);
+  }
+
+  // resolve strategies (existing by name / legacy tag, else queue for creation)
+  const nameToId = {}; strategies.forEach(s => nameToId[s.name.toLowerCase()] = s.id);
+  const tagToStrat = {}; strategies.forEach(s => { if (s.legacyTag) tagToStrat[s.legacyTag] = s; });
+  const toCreate = [], seen = {};
+  function resolveStrat(raw) {
+    const v = (raw || '').trim() || 'Imported';
+    if (seen[v] !== undefined) return seen[v];
+    if (nameToId[v.toLowerCase()]) return seen[v] = nameToId[v.toLowerCase()];
+    const m = v.match(/^(\d+)\s*%/);
+    if (m) {
+      const tag = m[1], nm = tag + '% Strategy';
+      if (tagToStrat[tag]) return seen[v] = tagToStrat[tag].id;
+      if (nameToId[nm.toLowerCase()]) return seen[v] = nameToId[nm.toLowerCase()];
+      toCreate.push({ tag, name: nm, color: tag === '200' ? '#f97316' : tag === '300' ? '#737373' : PALETTE[toCreate.length % PALETTE.length] });
+      return seen[v] = '@' + toCreate.length;
+    }
+    toCreate.push({ name: v, color: PALETTE[(strategies.length + toCreate.length) % PALETTE.length] });
+    return seen[v] = '@' + toCreate.length;
+  }
+  tRows.forEach(r => resolveStrat(r[cS]));
+
+  // optional adjustments section (new-format exports round-trip)
+  let aRows = [];
+  if (adjStart >= 0) {
+    const ah = rows[adjStart + 1] || [], ac = n => ah.indexOf(n);
+    const aD = ac('Date'), aA = ah.findIndex(x => /Actual/i.test(x)), aAmt = ac('Adjustment'), aN = ac('Note');
+    if (aD >= 0 && aAmt >= 0) for (let i = adjStart + 2; i < rows.length; i++) {
+      const r = rows[i]; if (!r.length || !r[aD]) continue;
+      aRows.push({ date: r[aD], actualPnl: aA >= 0 ? parseFloat(r[aA]) || 0 : 0, amount: parseFloat(r[aAmt]) || 0, note: aN >= 0 ? (r[aN] || '') : '' });
+    }
+  }
+
+  // names for placeholders + existing ids
+  const placeName = {}; toCreate.forEach((c, i) => placeName['@' + (i + 1)] = c.name);
+  const nameForId = {}; strategies.forEach(s => nameForId[s.id] = s.name);
+  const finalName = ref => (typeof ref === 'string' && ref[0] === '@') ? placeName[ref] : (nameForId[ref] || ref);
+
+  // dedup vs existing trades (by resolved strategy name, so legacy + real both match)
+  const sigOf = (d, name, sym, lots, pnl, tax) => [d, (name || '').toLowerCase(), sym || 'OTHER', (+lots).toFixed(3), (+pnl).toFixed(2), (+tax).toFixed(2)].join('|');
+  const existing = new Set(trades.map(t => { const s = stratOf(t); return sigOf(t.date, s.name, t.symbol, t.lots, t.pnl, t.tax || 0); }));
+  const adjExisting = new Set(adjustments.map(a => [a.date, (+a.amount).toFixed(2)].join('|')));
+
+  let dup = 0; const plan = [];
+  tRows.forEach(r => {
+    const ref = resolveStrat(r[cS]), name = finalName(ref);
+    const symbol = (r[cSym] || '').trim() || 'OTHER';
+    const lots = parseFloat(r[cL]) || 0, pnl = parseFloat(r[cG]) || 0, tax = cT >= 0 ? (parseFloat(r[cT]) || 0) : 0;
+    const sig = sigOf(r[cD], name, symbol, lots, pnl, tax);
+    if (existing.has(sig)) { dup++; return; }
+    existing.add(sig);
+    plan.push({ date: r[cD], ref, symbol, lots, pnl, tax, notes: cN >= 0 ? (r[cN] || '') : '' });
+  });
+  const adjPlan = aRows.filter(a => { const k = [a.date, (+a.amount).toFixed(2)].join('|'); if (adjExisting.has(k)) return false; adjExisting.add(k); return true; });
+
+  if (!plan.length && !adjPlan.length) return showToast(dup ? `All ${dup} rows already imported` : 'Nothing to import');
+
+  let msg = `Import ${plan.length} trade(s)`;
+  if (toCreate.length) msg += `, create ${toCreate.length} strateg${toCreate.length > 1 ? 'ies' : 'y'} (${toCreate.map(c => c.name).join(', ')})`;
+  if (adjPlan.length) msg += `, ${adjPlan.length} adjustment(s)`;
+  if (dup) msg += `. Skipping ${dup} duplicate(s)`;
+  if (!confirm(msg + '?')) return;
 
   setSyncState('syncing');
   try {
-    await addDoc(collection(db,'trades'),{date,strat,symbol,lots,pnl,tax,notes});
-    closeModal(); clearForm(); showToast('Trade added ✓');
-  } catch(e) { setSyncState('error'); showToast('Error — check connection'); console.error(e); }
+    const idMap = {};
+    for (let i = 0; i < toCreate.length; i++) {
+      const c = toCreate[i];
+      const ref = await addDoc(collection(db, 'strategies'), { name: c.name, threshold: DEFAULT_THRESHOLD, color: c.color, ...(c.tag ? { legacyTag: c.tag } : {}), createdAt: Date.now() + i });
+      idMap['@' + (i + 1)] = ref.id;
+    }
+    await Promise.all(plan.map(p => addDoc(collection(db, 'trades'), {
+      date: p.date, strategyId: (typeof p.ref === 'string' && p.ref[0] === '@') ? idMap[p.ref] : p.ref,
+      symbol: p.symbol, lots: p.lots, pnl: p.pnl, tax: p.tax, notes: p.notes
+    })));
+    await Promise.all(adjPlan.map(a => addDoc(collection(db, 'adjustments'), { date: a.date, actualPnl: a.actualPnl, amount: a.amount, note: a.note })));
+    showToast(`Imported ${plan.length} trade(s)${adjPlan.length ? ' + ' + adjPlan.length + ' adj' : ''} ✓`);
+  } catch (err) { setSyncState('error'); showToast('Import error'); console.error(err); }
 };
 
-window.deleteTrade = async function(id) {
-  if (!confirm('Delete this trade?')) return;
-  setSyncState('syncing');
-  try { await deleteDoc(doc(db,'trades',id)); showToast('Trade removed'); }
-  catch(e) { setSyncState('error'); showToast('Error'); }
-};
-
-window.clearAllTrades = async function() {
-  if (!trades.length) return;
-  if (!confirm('Delete ALL '+trades.length+' trades? Cannot be undone.')) return;
-  setSyncState('syncing');
-  try { await Promise.all(trades.map(t=>deleteDoc(doc(db,'trades',t.id)))); showToast('All cleared'); }
-  catch(e) { setSyncState('error'); showToast('Error'); }
-};
-
-window.clearForm = function() {
-  ['f-lots','f-pnl','f-tax','f-notes'].forEach(id=>document.getElementById(id).value='');
-};
-
-// ── Threshold ──────────────────────────────────────────────────────────────
-window.applyThreshold = async function() {
-  const v = parseFloat(document.getElementById('dd-threshold').value);
-  if (!v||v<1){showToast('Invalid value');return;}
-  threshold=v;
-  document.getElementById('threshold-display').textContent = fmt(v);
-  try { await setDoc(doc(db,'settings','threshold'),{value:v}); showToast('Threshold → ₹'+fmt(v)+'/lot'); renderAll(); }
-  catch(e){ showToast('Error saving'); }
-};
-
-// ── CSV ────────────────────────────────────────────────────────────────────
-window.exportCSV = function() {
-  if (!trades.length){showToast('No trades');return;}
-  const {m2,m3}=getDDMaps();
-  const rows=[['#','Date','Strategy','Symbol','Lots','Gross P&L','Taxes','Net P&L','Drawdown','DD/Lot','Delta Alert','Notes']];
-  trades.forEach((t,i)=>{const d=t.strat==='200'?m2[t.id]:m3[t.id];rows.push([i+1,t.date,t.strat+'%',t.symbol||'',t.lots,t.pnl,t.tax,t.pnl-t.tax,d?d.dd:0,d?d.ddpl:0,(d&&isAlert(d))?'YES':'NO',t.notes||'']);});
-  const csv=rows.map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
-  a.download='tradejournal_'+new Date().toISOString().slice(0,10)+'.csv';
-  a.click(); showToast('CSV exported');
-};
-
-// ── Toast ──────────────────────────────────────────────────────────────────
 let toastT;
-window.showToast = function(msg) {
-  const el=document.getElementById('toast');
-  el.textContent=msg; el.classList.add('show');
-  clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove('show'),2500);
+window.showToast = function (msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), 2500);
 };
 
-// ── Init ───────────────────────────────────────────────────────────────────
-document.getElementById('f-date').value = new Date().toISOString().split('T')[0];
+// ── Init ─────────────────────────────────────────────────────────────────────
 boot();
