@@ -698,8 +698,8 @@ function chartOpts(extra = {}) {
   return {
     plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ₹' + (c.parsed.y ?? 0).toLocaleString('en-IN') } }, ...extra.plugins },
     scales: {
-      x: { grid: { color: 'rgba(160,160,210,.12)', lineWidth: .5 }, ticks: { font: { size: 10, family: "'DM Mono',monospace" }, color: '#a3a3a3', maxTicksLimit: 7 } },
-      y: { grid: { color: 'rgba(160,160,210,.12)', lineWidth: .5 }, ticks: { font: { size: 10, family: "'DM Mono',monospace" }, color: '#a3a3a3', callback: v => '₹' + v.toLocaleString('en-IN') } }
+      x: { grid: { color: 'rgba(160,160,210,.12)', lineWidth: .5 }, ticks: { font: { size: 10, family: "'Open Sans',sans-serif" }, color: '#a3a3a3', maxTicksLimit: 7 } },
+      y: { grid: { color: 'rgba(160,160,210,.12)', lineWidth: .5 }, ticks: { font: { size: 10, family: "'Open Sans',sans-serif" }, color: '#a3a3a3', callback: v => '₹' + v.toLocaleString('en-IN') } }
     },
     animation: { duration: 400 }, responsive: true, maintainAspectRatio: false, ...extra
   };

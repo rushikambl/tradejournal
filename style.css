@@ -528,3 +528,46 @@ tbody tr:hover td{background:rgba(255,255,255,.025)}
 .dx-skel{display:block;height:120px;border-radius:var(--r);background:linear-gradient(90deg,var(--panel) 25%,var(--panel-2) 50%,var(--panel) 75%);background-size:200% 100%;animation:dxsk 1.2s infinite linear}
 @keyframes dxsk{to{background-position:-200% 0}}
 @media(prefers-reduced-motion:reduce){.dx-skel{animation:none}.dx-bar i{transition:none}}
+
+/* ═══ KITE THEME — matched to kite.zerodha.com (dark) ═════════════════════ */
+:root{
+  --ink:#111111; --ink-2:#111111; --rail:#181818;
+  --panel:#181818; --panel-2:#1e1e1e; --panel-3:#222222;
+  --line:#232325; --line-2:#2c2c2e; --line-3:#363636; --hi:transparent;
+  --t1:#d9d9d9; --t2:#bbbbbb; --t3:#8c8c8c; --t4:#6b6b6b; --text3:#8c8c8c;
+  --accent:#d4603b; --accent-2:#d4603b; --orange:#d4603b; --orange-dark:#bf5333;
+  --orange-dim:rgba(212,96,59,.10); --orange-border:rgba(212,96,59,.35); --accent-glow:rgba(212,96,59,.18);
+  --blue:#4987ee; --blue-hover:#3b78dd;
+  --green:#5b9a5d; --pos:#5b9a5d; --green-dim:rgba(91,154,93,.12); --pos-border:rgba(91,154,93,.35);
+  --red:#e25f5b; --neg:#e25f5b; --red-dim:rgba(226,95,91,.12); --neg-border:rgba(226,95,91,.35);
+  --sans:'Open Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --mono:'Open Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --r-lg:4px; --r:3px; --r-sm:3px; --r-xs:3px; --r-2xs:2px; --r-pill:100px;
+  --sh-card:none; --sh-float:0 1px 5px #0d0d0d; --sh-pop:0 4px 20px rgba(0,0,0,.6);
+}
+body{font-feature-settings:normal}
+
+/* Flat surfaces: no gradients, glows or glass */
+#splash,#login{background:var(--ink)}
+#content,.pg-banner,.dx-hero,.kpi,.card,.filter-bar,.tbl-card,.scard,.dx-dcard,#modal,.lg-card{background:var(--panel);box-shadow:none}
+.pg-banner::after{display:none}
+#topbar{background:var(--rail);backdrop-filter:none;box-shadow:var(--sh-float);border-bottom-color:var(--line)}
+#bnav{background:var(--rail);backdrop-filter:none;box-shadow:0 -1px 5px #0d0d0d}
+#sidebar{box-shadow:1px 0 5px #0d0d0d}
+.card:hover,.scard:hover,.kpi:hover,.dx-dcard:hover{transform:none;box-shadow:none;border-color:var(--line-3)}
+
+/* Kite primary buttons: flat blue, white text */
+.sb-add,.tb-add,.banner-btn,.btn-primary,.bn-circle,.modal-icon{background:var(--blue);color:#fff;box-shadow:none;font-weight:600}
+.sb-add:hover,.tb-add:hover,.banner-btn:hover,.btn-primary:hover{background:var(--blue-hover);filter:none;transform:none}
+.sb-add svg,.tb-add svg,.banner-btn svg,.btn-primary svg,.bn-circle svg,.modal-icon svg{stroke:#fff}
+
+/* Navigation: orange text for the active item, like Kite's top nav */
+.sb-item.active{background:transparent;color:var(--accent);font-weight:700}
+.sb-item.active::before{background:var(--accent)}
+.dx-seg button.on,.dx-seg button.active{background:var(--panel);color:var(--accent)}
+
+/* Kite numerals: large and light */
+.dx-hero-num,.pg-hero-num,.dx-dc-delta{font-weight:300;letter-spacing:-.5px}
+.kpi-val{font-weight:400;letter-spacing:0}
+.sp-bar-fill,.dx-bar i{background:var(--accent)}
+.dx-skel{background:linear-gradient(90deg,var(--panel) 25%,var(--panel-2) 50%,var(--panel) 75%);background-size:200% 100%}
