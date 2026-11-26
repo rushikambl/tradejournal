@@ -299,7 +299,7 @@ function renderDashboard() {
   // Delta control
   const dEl = document.getElementById('dx-delta');
   const ro = isRO();
-  dEl.innerHTML = realStrategies().filter(s => trades.some(t => keyOf(t) === s.id)).map(s => {
+  dEl.innerHTML = dashStrats().map(s => {
     const d = deltaInfo(s);
     if (!d) return `<div class="dx-dcard"><div class="dx-dc-top"><span class="dx-dc-name"><span class="cdot" style="background:${s.color}"></span>${esc(s.name)}</span></div>
       <div style="font-size:12.5px;color:var(--t2);line-height:1.5;margin-bottom:12px">No delta rule yet. Add a base and cap delta to see the target here.</div>
@@ -337,7 +337,7 @@ function renderDashboard() {
     const tr = trades.filter(t => t.date === d);
     const tot = tr.reduce((s, t) => s + net(t), 0);
     return `<div class="dx-day"><div class="dx-day-date"><b>${d.slice(8)}</b><span>${dayName(d)}</span></div>
-      <div class="dx-day-mid">${tr.map(t => { const s = stratOf(t), n = net(t); return `<span class="dx-chip"><span class="cdot" style="background:${s.color};width:7px;height:7px"></span><span class="${pc(n)}">${sig(n)}</span></span>`; }).join('')}
+      <div class="dx-day-mid">${tr.slice().sort((x, y) => stratOf(x).name.localeCompare(stratOf(y).name)).map(t => { const s = stratOf(t), n = net(t); return `<span class="dx-chip"><span class="cdot" style="background:${s.color};width:7px;height:7px"></span><span class="${pc(n)}">${sig(n)}</span></span>`; }).join('')}
         <span class="dx-chip" style="color:var(--t3)">${esc(tr[0].symbol || '—')}</span></div>
       <div class="dx-day-tot ${arrowCls(tot)}">${sig(tot)}</div></div>`;
   }).join('') : `<div style="padding:18px;text-align:center;color:#555;font-size:13px">No trades yet</div>`;
@@ -357,9 +357,16 @@ function renderDashboard() {
   renderDashCharts();
 }
 
+// Strategies shown on the dashboard: those with a delta rule if any have one, else all strategies with trades
+function dashStrats() {
+  const withTrades = realStrategies().filter(s => trades.some(t => keyOf(t) === s.id));
+  const ruled = withTrades.filter(s => s.deltaBase != null);
+  return (ruled.length ? ruled : withTrades).sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function renderDashCharts() {
   const cut = dxRangeDays ? new Date(Date.now() - dxRangeDays * 864e5).toISOString().slice(0, 10) : '';
-  const strats = Object.values(stratMap).filter(s => trades.some(t => keyOf(t) === s.id));
+  const strats = dashStrats();
   const allDates = [...new Set(trades.map(t => t.date))].sort();
   const dates = allDates.filter(d => !cut || d >= cut);
 
@@ -376,9 +383,9 @@ function renderDashCharts() {
     let ct = 0; const totBy = {};
     [...trades].sort((a, b) => a.date.localeCompare(b.date)).forEach(t => { ct += net(t); totBy[t.date] = ct; });
     const tot = dates.map(d => totBy[d]);
-    const dsets = series.map(x => ({ label: x.s.name, data: x.data, borderColor: x.s.color, backgroundColor: 'transparent', pointRadius: 0, pointHoverRadius: 4, tension: .3, borderWidth: 2, spanGaps: true }));
-    dsets.push({ label: 'Total', data: tot, borderColor: '#e5e7eb', backgroundColor: 'rgba(229,231,235,.06)', fill: true, pointRadius: 0, pointHoverRadius: 4, tension: .3, borderWidth: 2.2 });
-    leg.innerHTML = series.map(x => `<span><i style="background:${x.s.color}"></i>${esc(x.s.name)}</span>`).join('') + `<span><i style="background:#e5e7eb"></i>Total</span>`;
+    const dsets = series.map(x => ({ label: x.s.name, data: x.data, borderColor: x.s.color, backgroundColor: 'transparent', pointRadius: 0, pointHoverRadius: 4, cubicInterpolationMode: 'monotone', borderWidth: 2, spanGaps: true }));
+    dsets.push({ label: 'Total (all trades)', data: tot, borderColor: '#e5e7eb', backgroundColor: 'rgba(229,231,235,.06)', fill: true, pointRadius: 0, pointHoverRadius: 4, cubicInterpolationMode: 'monotone', borderWidth: 2.2 });
+    leg.innerHTML = series.map(x => `<span><i style="background:${x.s.color}"></i>${esc(x.s.name)}</span>`).join('') + `<span><i style="background:#e5e7eb"></i>Total (all trades)</span>`;
     charts['dm'] = new Chart(document.getElementById('ch-dash'), { type: 'line', data: { labels: dates, datasets: dsets },
       options: chartOpts({ interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ' + c.dataset.label + ': ' + sig(c.parsed.y ?? 0) } } } }) });
   } else leg.innerHTML = '';
@@ -391,7 +398,7 @@ function renderDashCharts() {
       const arr = trades.filter(t => keyOf(t) === s.id).sort((a, b) => a.date.localeCompare(b.date));
       const dds = computeDD(arr); const by = {};
       arr.forEach((t, i) => { by[t.date] = Math.round(dds[i].ddpl * 100) / 100; });
-      return { label: s.name, data: dates.map(d => by[d] ?? null), borderColor: s.color, backgroundColor: s.color + '18', fill: true, pointRadius: 0, pointHoverRadius: 4, tension: .25, borderWidth: 2, spanGaps: true };
+      return { label: s.name, data: dates.map(d => by[d] ?? null), borderColor: s.color, backgroundColor: s.color + '18', fill: true, pointRadius: 0, pointHoverRadius: 4, tension: 0, borderWidth: 2, spanGaps: true };
     });
     const minV = Math.min(0, ...ddsets.flatMap(x => x.data.filter(v => v != null)));
     const step = (ruledS[0].threshold || DEFAULT_THRESHOLD);
