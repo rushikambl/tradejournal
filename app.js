@@ -964,6 +964,44 @@ window.tjStatus = function (date) {
   });
   return { ready: appReady, date: d, tradeCount: trades.length, logged: rows, latest: latestDDByStrategy(), delta: window.tjDeltaInfo() };
 };
+// tjReconcile(from, to, rows, apply) — makes a date range match a broker's day-by-day record.
+// rows: [{date, strategy (name), symbol, lots, pnl, tax}]. Within [from, to] and only for the named
+// strategies, journal trades with no exact match (date, strategy, symbol, pnl, tax) are deleted and
+// missing rows added, in one batch. apply=false returns the plan without writing.
+window.tjReconcile = async function (from, to, rows, apply) {
+  if (!me) return { ok: false, error: 'not signed in' };
+  if (isRO()) return { ok: false, error: 'read-only (viewing another account)' };
+  const byName = {};
+  realStrategies().forEach(s => { byName[s.name.trim().toLowerCase()] = s; });
+  const target = [];
+  for (const r of rows || []) {
+    const s = byName[String(r.strategy || '').trim().toLowerCase()];
+    if (!s) return { ok: false, error: 'unknown strategy: ' + r.strategy };
+    target.push({ date: r.date, strategyId: s.id, symbol: r.symbol, lots: +r.lots, pnl: +r.pnl, tax: +r.tax || 0 });
+  }
+  const sids = new Set(target.map(t => t.strategyId));
+  const same = (a, b) => a.date === b.date && a.strategyId === b.strategyId && a.symbol === b.symbol
+    && Math.abs((a.pnl || 0) - b.pnl) < 0.005 && Math.abs((a.tax || 0) - b.tax) < 0.005;
+  const inRange = trades.filter(t => sids.has(t.strategyId) && t.date >= from && t.date <= to);
+  const used = new Set();
+  const keep = [], del = [];
+  inRange.forEach(t => {
+    const i = target.findIndex((x, k) => !used.has(k) && same(t, x));
+    if (i >= 0) { used.add(i); keep.push(t); } else del.push(t);
+  });
+  const add = target.filter((_, k) => !used.has(k));
+  const plan = { keep: keep.length, delete: del.length, add: add.length,
+    netBefore: Math.round(inRange.reduce((a, t) => a + net(t), 0) * 100) / 100,
+    netAfter: Math.round(target.reduce((a, t) => a + t.pnl - t.tax, 0) * 100) / 100 };
+  if (!apply) return { ok: true, dryRun: true, ...plan };
+  const batch = writeBatch(db);
+  del.forEach(t => batch.delete(doc(db, 'trades', t.id)));
+  add.forEach(t => batch.set(doc(collection(db, 'trades')), { ...t, notes: '', ownerId: me.uid }));
+  setSyncState('syncing');
+  try { await batch.commit(); showToast(`Reconciled: ${del.length} removed, ${add.length} added`); }
+  catch (err) { setSyncState('error'); console.error(err); return { ok: false, error: String(err) }; }
+  return { ok: true, ...plan };
+};
 window.tjQuickLog = async function (entries) {
   if (!me) return { ok: false, error: 'not signed in' };
   if (isRO()) return { ok: false, error: 'read-only (viewing another account)' };
