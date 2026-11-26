@@ -817,11 +817,15 @@ const loggedOn = (date, sid) => trades.some(t => t.date === date && t.strategyId
 function lastTradeOf(sid) {
   return trades.filter(t => t.strategyId === sid).sort((a, b) => b.date.localeCompare(a.date))[0] || null;
 }
+// Strategies in running portfolios come first; falls back to the first running one when all are logged
 function nextStrategyFor(date, after) {
-  const opts = realStrategies();
+  const running = new Set(portfolios.filter(p => p.active).flatMap(p => p.strategyIds || []));
+  const all = realStrategies();
+  const pool = all.filter(s => running.has(s.id));
+  const opts = pool.length ? pool : all;
   const start = after ? opts.findIndex(s => s.id === after) + 1 : 0;
   const order = opts.slice(start).concat(opts.slice(0, start));
-  return (order.find(s => s.id !== after && !loggedOn(date, s.id)) || order[0] || {}).id;
+  return (order.find(s => s.id !== after && !loggedOn(date, s.id)) || opts[0] || {}).id;
 }
 function syncTradeForm() {
   const sid = document.getElementById('f-strat').value;
