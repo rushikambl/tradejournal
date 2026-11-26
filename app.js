@@ -809,31 +809,70 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal
 const today = () => new Date().toISOString().split('T')[0];
 
 // ── Add Trade modal ──────────────────────────────────────────────────────────
-window.openTradeModal = function () {
+// Fast logging: picks the next strategy not yet logged for the date, prefills symbol + lots from
+// that strategy's last trade, warns on duplicates. Enter = add, Shift+Enter = add & log next.
+const SYMBOLS = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX', 'BANKEX', 'OTHER'];
+const isDesktop = () => window.matchMedia('(hover:hover) and (pointer:fine)').matches;
+const loggedOn = (date, sid) => trades.some(t => t.date === date && t.strategyId === sid);
+function lastTradeOf(sid) {
+  return trades.filter(t => t.strategyId === sid).sort((a, b) => b.date.localeCompare(a.date))[0] || null;
+}
+function nextStrategyFor(date, after) {
+  const opts = realStrategies();
+  const start = after ? opts.findIndex(s => s.id === after) + 1 : 0;
+  const order = opts.slice(start).concat(opts.slice(0, start));
+  return (order.find(s => s.id !== after && !loggedOn(date, s.id)) || order[0] || {}).id;
+}
+function syncTradeForm() {
+  const sid = document.getElementById('f-strat').value;
+  const date = document.getElementById('f-date').value;
+  const last = lastTradeOf(sid);
+  if (last) {
+    if (SYMBOLS.includes(last.symbol)) document.getElementById('f-symbol').value = last.symbol;
+    document.getElementById('f-lots').value = last.lots;
+  }
+  const dup = document.getElementById('f-dup');
+  if (dup) dup.textContent = loggedOn(date, sid) ? 'Already logged for this date — adding will create a second row.' : '';
+}
+window.syncTradeForm = syncTradeForm;
+
+window.openTradeModal = function (opt = {}) {
   const opts = realStrategies();
   if (!opts.length) {
     openModal('Add Trade', `<div style="color:#888;font-size:14px;line-height:1.6">You need at least one strategy before adding a trade.</div>`,
       `<button class="btn-ghost" onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="closeModal();goPage('strategies');openStrategyModal()">Create Strategy</button>`);
     return;
   }
+  const date = opt.date || today();
+  const pick = nextStrategyFor(date, opt.after);
   openModal('New Trade', `
     <div class="mrow">
-      <div class="mf"><label>Date</label><input type="date" id="f-date" value="${today()}"></div>
-      <div class="mf"><label>Strategy</label><select id="f-strat">${opts.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></div>
+      <div class="mf"><label>Date</label><input type="date" id="f-date" value="${esc(date)}" onchange="syncTradeForm()"></div>
+      <div class="mf"><label>Strategy</label><select id="f-strat" onchange="syncTradeForm()">${opts.map(s => `<option value="${s.id}"${s.id === pick ? ' selected' : ''}>${esc(s.name)}</option>`).join('')}</select></div>
     </div>
     <div class="mrow">
-      <div class="mf"><label>Symbol</label><select id="f-symbol"><option>NIFTY</option><option>BANKNIFTY</option><option>FINNIFTY</option><option>MIDCPNIFTY</option><option>SENSEX</option><option>BANKEX</option><option>OTHER</option></select></div>
+      <div class="mf"><label>Symbol</label><select id="f-symbol">${SYMBOLS.map(x => `<option>${x}</option>`).join('')}</select></div>
       <div class="mf"><label>Lots</label><input type="number" id="f-lots" placeholder="e.g. 2" min="0.1" step="0.1"></div>
     </div>
     <div class="mrow">
       <div class="mf"><label>Gross P&L (₹)</label><input type="number" id="f-pnl" placeholder="e.g. −1500"></div>
       <div class="mf"><label>Taxes (₹)</label><input type="number" id="f-tax" placeholder="e.g. 68" min="0"></div>
     </div>
-    <div class="mf"><label>Notes <em>(optional)</em></label><input type="text" id="f-notes" placeholder="anything…"></div>`,
-    `<button class="btn-ghost" onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="addTrade()">Add Trade</button>`);
+    <div class="mf"><label>Notes <em>(optional)</em></label><input type="text" id="f-notes" placeholder="anything…"></div>
+    <div class="f-dup" id="f-dup"></div>
+    <div class="f-keys desk-only"><kbd class="kb">Enter</kbd> add · <kbd class="kb">Shift</kbd>+<kbd class="kb">Enter</kbd> add &amp; log next · <kbd class="kb">Esc</kbd> close</div>`,
+    `<button class="btn-ghost" onclick="closeModal()">Cancel</button><button class="btn-ghost desk-only" onclick="addTrade(true)">Add &amp; next</button><button class="btn-primary" onclick="addTrade()">Add Trade</button>`);
+  syncTradeForm();
+  const body = document.getElementById('modal-body');
+  body.onkeydown = e => {
+    if (e.key !== 'Enter' || e.target.tagName === 'SELECT' && !e.shiftKey) return;
+    e.preventDefault();
+    addTrade(e.shiftKey);
+  };
+  if (isDesktop()) setTimeout(() => document.getElementById('f-pnl')?.focus(), 60);
 };
 
-window.addTrade = async function () {
+window.addTrade = async function (next) {
   const date = document.getElementById('f-date').value;
   const strategyId = document.getElementById('f-strat').value;
   const symbol = document.getElementById('f-symbol').value;
@@ -847,9 +886,44 @@ window.addTrade = async function () {
   if (isNaN(pnl)) return showToast('Enter P&L');
   if (roGuard()) return;
   setSyncState('syncing');
-  try { await addDoc(collection(db, 'trades'), { date, strategyId, symbol, lots, pnl, tax, notes, ownerId: me.uid }); closeModal(); showToast('Trade added ✓'); }
+  try {
+    await addDoc(collection(db, 'trades'), { date, strategyId, symbol, lots, pnl, tax, notes, ownerId: me.uid });
+    showToast('Trade added ✓');
+    if (next === true) openTradeModal({ date, after: strategyId });
+    else closeModal();
+  }
   catch (e) { setSyncState('error'); showToast('Error — check connection'); console.error(e); }
 };
+
+// ── Keyboard shortcuts (desktop) ─────────────────────────────────────────────
+const PAGE_KEYS = { d: 'dashboard', t: 'all', s: 'strategies', p: 'portfolios', a: 'adjustments', c: 'charts', u: 'accounts' };
+function showShortcuts() {
+  const row = (k, label) => `<div class="kb-row"><span>${label}</span><span>${k.map(x => `<kbd class="kb">${x}</kbd>`).join(' ')}</span></div>`;
+  openModal('Keyboard shortcuts', `<div class="kb-list">
+    ${row(['N'], 'New trade')}
+    ${row(['Enter'], 'Add trade (in the form)')}
+    ${row(['Shift', 'Enter'], 'Add & log the next strategy')}
+    ${row(['D'], 'Dashboard')}${row(['T'], 'All trades')}${row(['S'], 'Strategies')}${row(['P'], 'Portfolios')}
+    ${row(['A'], 'Adjustments')}${row(['C'], 'Charts')}${row(['U'], 'Accounts (admins)')}
+    ${row(['1'], 'P&L range 1M (dashboard)')}${row(['3'], 'P&L range 3M')}${row(['0'], 'P&L range All')}
+    ${row(['?'], 'This list')}${row(['Esc'], 'Close')}</div>`,
+    `<button class="btn-primary" onclick="closeModal()">Got it</button>`);
+}
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+  const t = e.target;
+  if (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+  if (document.getElementById('modal').classList.contains('open')) return;
+  if (!me || document.getElementById('app').classList.contains('hidden')) return;
+  const k = e.key.toLowerCase();
+  if (k === 'n') { e.preventDefault(); openTradeModal(); }
+  else if (e.key === '?') { e.preventDefault(); showShortcuts(); }
+  else if (PAGE_KEYS[k]) {
+    const btn = document.querySelector(`.sb-item[data-page="${PAGE_KEYS[k]}"]`);
+    if (btn && btn.style.display !== 'none') { e.preventDefault(); goPage(PAGE_KEYS[k]); }
+  }
+  else if (curPage === 'dashboard' && { '1': 30, '3': 90, '0': 0 }[e.key] !== undefined) { e.preventDefault(); window.dxRange({ '1': 30, '3': 90, '0': 0 }[e.key]); }
+});
 
 // ── Quick-log helper (no UI; used for automated daily logging) ──────────────
 // tjStatus(date)  → today's rows per strategy + latest DD/lot per strategy
@@ -1424,4 +1498,4 @@ function showToast(msg) {
 // ── Init ─────────────────────────────────────────────────────────────────────
 boot();
 
-Object.assign(window, { goPage, closeDrawer, closeModal, syncPreview, showToast });
+Object.assign(window, { goPage, closeDrawer, closeModal, syncPreview, showToast, showShortcuts });
