@@ -146,39 +146,58 @@
 
       <!-- DASHBOARD -->
       <div class="page active" id="page-dashboard">
-        <div class="pg-banner">
-          <div class="pg-banner-left" style="position:relative">
-            <div class="hero-pair">
-              <div class="hero-block">
-                <div class="pg-eyebrow">All-time Net P&amp;L</div>
-                <div class="pg-hero-num" id="hero-alltime">—</div>
-                <div class="pg-hero-sub">Trades + adjustments</div>
-              </div>
-              <div class="hero-block sub">
-                <div class="pg-eyebrow">Active (running)</div>
-                <div class="pg-hero-num" id="hero-active">—</div>
-                <div class="pg-hero-sub" id="hero-active-sub">Running portfolios</div>
-              </div>
-            </div>
+        <section class="dx-hero dx-in">
+          <div class="dx-hero-top">
+            <span class="dx-eyebrow">Account net</span>
+            <span class="dx-today" id="dx-today-chip">—</span>
           </div>
-          <button class="banner-btn" onclick="openTradeModal()">
+          <div class="dx-hero-num" id="hero-alltime">—</div>
+          <div class="dx-hero-meta">
+            <span>Today <b id="dx-today-pnl">—</b></span>
+            <span class="dx-dot"></span>
+            <span>Running <b id="hero-active">—</b></span>
+            <span class="dx-dot"></span>
+            <span id="hero-active-sub">—</span>
+          </div>
+          <button class="dx-add banner-btn" onclick="openTradeModal()">
             <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><line x1="6.5" y1="1" x2="6.5" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="1" y1="6.5" x2="12" y2="6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             New Trade
           </button>
+        </section>
+
+        <div class="dx-sec dx-in" style="--d:.05s">
+          <div class="dx-sec-hd"><span class="dx-sec-t">Delta control</span><span class="dx-sec-s">+1 delta per step of DD/lot</span></div>
+          <div class="dx-delta" id="dx-delta"></div>
         </div>
-        <div class="kpi-grid" id="kpi-dash"></div>
-        <div class="dash-grid">
-          <div class="card span2" id="dash-main-card">
-            <div class="card-hd"><span class="card-lbl">Combined P&amp;L</span><span class="tag tag-orange">Cumulative</span></div>
-            <div class="chart-wrap h260"><canvas id="ch-dash"></canvas></div>
+
+        <div class="dx-stats dx-in" style="--d:.1s" id="kpi-dash"></div>
+
+        <div class="card dx-in" style="--d:.15s" id="dash-main-card">
+          <div class="dx-card-hd">
+            <span class="card-lbl">P&amp;L curve</span>
+            <div class="dx-seg" id="dx-range">
+              <button data-r="30" onclick="dxRange(30)">1M</button>
+              <button data-r="90" onclick="dxRange(90)">3M</button>
+              <button data-r="0" class="on" onclick="dxRange(0)">All</button>
+            </div>
           </div>
+          <div class="dx-legend" id="dx-legend"></div>
+          <div class="chart-wrap h260"><canvas id="ch-dash"></canvas></div>
+        </div>
+
+        <div class="card dx-in" style="--d:.2s">
+          <div class="dx-card-hd"><span class="card-lbl">DD per lot</span><span class="tag tag-gray">Dotted = delta steps</span></div>
+          <div class="chart-wrap"><canvas id="ch-ddlot"></canvas></div>
+        </div>
+
+        <div class="dx-two dx-in" style="--d:.25s">
           <div class="card">
-            <div class="card-hd"><span class="card-lbl">Running Portfolios</span><span class="tag tag-gray" id="run-tag">—</span></div>
-            <div id="run-list"></div>
-          </div>
-          <div class="card">
-            <div class="card-hd"><span class="card-lbl">Recent Trades</span><span class="tag tag-gray" id="recent-tag">—</span></div>
+            <div class="dx-card-hd"><span class="card-lbl">Recent days</span><span class="tag tag-gray" id="recent-tag">—</span></div>
             <div id="recent-list"></div>
+          </div>
+          <div class="card">
+            <div class="dx-card-hd"><span class="card-lbl">Running portfolios</span><span class="tag tag-gray" id="run-tag">—</span></div>
+            <div id="run-list"></div>
           </div>
         </div>
       </div>

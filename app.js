@@ -221,51 +221,183 @@ function renderKPIs(elId, items) {
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
+// Delta rule per strategy: target = min(base + floor(|DD per lot| / step), cap); step = strategy threshold (₹/lot)
+function deltaInfo(s) {
+  if (s.deltaBase == null || s.deltaCap == null) return null;
+  const arr = trades.filter(t => keyOf(t) === s.id).sort((a, b) => a.date.localeCompare(b.date));
+  const dds = computeDD(arr);
+  const last = dds[dds.length - 1];
+  const ddpl = last ? last.ddpl : 0;
+  const step = s.threshold || DEFAULT_THRESHOLD;
+  const steps = Math.floor(Math.abs(ddpl) / step);
+  const target = Math.min(s.deltaBase + steps, s.deltaCap);
+  const capped = s.deltaBase + steps >= s.deltaCap;
+  const toNext = capped ? 0 : (steps + 1) * step - Math.abs(ddpl);
+  const pct = capped ? 100 : Math.round((Math.abs(ddpl) % step) / step * 100);
+  return { ddpl, step, steps, target, capped, toNext, pct, set: s.deltaSet ?? null, setOn: s.deltaSetOn || null,
+    need: s.deltaSet != null && s.deltaSet !== target, lastDate: arr.length ? arr[arr.length - 1].date : null };
+}
+window.tjDeltaInfo = () => Object.fromEntries(realStrategies().map(s => [s.name, deltaInfo(s)]));
+
+let dxRangeDays = 0;
+window.dxRange = function (days) {
+  dxRangeDays = days;
+  document.querySelectorAll('#dx-range button').forEach(b => b.classList.toggle('on', +b.dataset.r === days));
+  renderDashCharts();
+};
+window.markDeltaSet = async function (id, val) {
+  if (roGuard()) return;
+  setSyncState('syncing');
+  try { await updateDoc(doc(db, 'strategies', id), { deltaSet: val, deltaSetOn: today() }); showToast('Delta ' + val + ' marked as set ✓'); }
+  catch (e) { setSyncState('error'); showToast('Error'); console.error(e); }
+};
+window.tjSetDelta = async function (name, cfg) {
+  const s = realStrategies().find(x => x.name.trim().toLowerCase() === String(name).trim().toLowerCase());
+  if (!s) return { ok: false, error: 'unknown strategy' };
+  const upd = {};
+  ['deltaBase', 'deltaCap', 'deltaSet'].forEach(k => { if (cfg && cfg[k] != null) upd[k] = +cfg[k]; });
+  if (upd.deltaSet != null) upd.deltaSetOn = cfg.deltaSetOn || today();
+  if (!Object.keys(upd).length) return { ok: false, error: 'nothing to set' };
+  try { await updateDoc(doc(db, 'strategies', s.id), upd); return { ok: true, strategy: s.name, ...upd }; }
+  catch (e) { return { ok: false, error: String(e) }; }
+};
+
+function dxCount(el, to, fmtFn) {
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const from = parseFloat(el.dataset.v || '0');
+  el.dataset.v = to;
+  if (reduce || from === to) { el.textContent = fmtFn(to); return; }
+  const t0 = performance.now(), dur = 650;
+  const tick = now => { const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3); el.textContent = fmtFn(from + (to - from) * e); if (k < 1) requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+}
+const arrowCls = n => n > 0 ? 'vpos dx-up' : n < 0 ? 'vneg dx-down' : 'vneu';
+
 function renderDashboard() {
   const a = accountTotals();
-  document.getElementById('hero-alltime').textContent = sig(a.allTimeNet);
-  document.getElementById('hero-active').textContent = sig(a.activeNet);
+  const heroEl = document.getElementById('hero-alltime');
+  heroEl.className = 'dx-hero-num ' + (a.allTimeNet >= 0 ? 'vpos' : 'vneg');
+  dxCount(heroEl, a.allTimeNet, sig);
+  const actEl = document.getElementById('hero-active');
+  actEl.textContent = sig(a.activeNet); actEl.className = pc(a.activeNet);
   const runCount = portfolios.filter(p => p.active).length;
-  document.getElementById('hero-active-sub').textContent = runCount + ' running portfolio' + (runCount !== 1 ? 's' : '');
+  document.getElementById('hero-active-sub').textContent = trades.length + ' trades · ' + runCount + ' running portfolio' + (runCount !== 1 ? 's' : '');
 
+  // Today
+  const td = today();
+  const todayTr = trades.filter(t => t.date === td);
+  const todayNet = todayTr.reduce((s, t) => s + net(t), 0);
+  const tEl = document.getElementById('dx-today-pnl');
+  tEl.textContent = todayTr.length ? sig(todayNet) : '—'; tEl.className = todayTr.length ? arrowCls(todayNet) : '';
+  const ruled = realStrategies().filter(s => s.deltaBase != null);
+  const expect = ruled.length ? ruled : realStrategies();
+  const loggedN = expect.filter(s => todayTr.some(t => t.strategyId === s.id)).length;
+  const chip = document.getElementById('dx-today-chip');
+  chip.className = 'dx-today ' + (loggedN === expect.length && expect.length ? 'ok' : loggedN ? 'miss' : '');
+  chip.textContent = loggedN === expect.length && expect.length ? '✓ Today logged' : loggedN ? loggedN + '/' + expect.length + ' logged today' : 'Today not logged';
+
+  // Delta control
+  const dEl = document.getElementById('dx-delta');
+  const ro = isRO();
+  dEl.innerHTML = realStrategies().filter(s => trades.some(t => keyOf(t) === s.id)).map(s => {
+    const d = deltaInfo(s);
+    if (!d) return `<div class="dx-dcard"><div class="dx-dc-top"><span class="dx-dc-name"><span class="cdot" style="background:${s.color}"></span>${esc(s.name)}</span></div>
+      <div style="font-size:12.5px;color:var(--t2);line-height:1.5;margin-bottom:12px">No delta rule yet. Add a base and cap delta to see the target here.</div>
+      ${ro ? '' : `<button class="dx-btn ghost" onclick="openStrategyModal('${s.id}')">Set up rule</button>`}</div>`;
+    const badge = d.set == null ? `<span class="tag tag-gray">AlgoTest: not recorded</span>`
+      : d.need ? `<span class="tag tag-amber">Change ${d.set} → ${d.target}</span>` : `<span class="tag tag-green">✓ In sync</span>`;
+    return `<div class="dx-dcard${d.need ? ' need' : ''}">
+      <div class="dx-dc-top"><span class="dx-dc-name"><span class="cdot" style="background:${s.color}"></span>${esc(s.name)}</span>${badge}</div>
+      <div class="dx-dc-main">
+        <div><div class="dx-dc-lbl">Target delta</div><div class="dx-dc-delta">${d.target}</div></div>
+        <div><div class="dx-dc-lbl" style="text-align:right">DD per lot</div><div class="dx-dc-dd ${d.ddpl < 0 ? 'vneg' : 'vneu'}">${d.ddpl < 0 ? '−' + inr(Math.abs(d.ddpl)) : '₹0'}</div></div>
+      </div>
+      <div class="dx-bar" role="progressbar" aria-valuenow="${d.pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Progress to next delta step"><i style="width:${d.pct}%"></i></div>
+      <div class="dx-dc-foot"><span>base ${s.deltaBase} · cap ${s.deltaCap} · step ${inr(d.step)}</span><span>${d.capped ? 'at cap' : inr(d.toNext) + ' to ' + (d.target + 1)}</span></div>
+      <div class="dx-dc-row"><span>Set in AlgoTest: <b style="color:var(--t1);font-family:var(--mono)">${d.set ?? '—'}</b>${d.setOn ? ` <span style="color:var(--t3)">· ${d.setOn}</span>` : ''}</span>
+        ${!ro && d.set !== d.target ? `<button class="dx-btn" onclick="markDeltaSet('${s.id}',${d.target})">Mark ${d.target} as set</button>` : ''}</div>
+    </div>`;
+  }).join('') || `<div class="dx-skel"></div>`;
+
+  // Quick stats
+  const wins = trades.filter(t => net(t) > 0).length;
+  const wr = trades.length ? Math.round(wins / trades.length * 1000) / 10 : 0;
   renderKPIs('kpi-dash', [
-    { label: 'All-time Net', value: sig(a.allTimeNet), valCls: a.allTimeNet >= 0 ? 'kpi-pos' : 'kpi-neg', sub: 'Gross ' + sig(a.gross) },
-    { label: 'Active Net', value: sig(a.activeNet), valCls: a.activeNet >= 0 ? 'kpi-pos' : 'kpi-neg', sub: runCount + ' running' },
+    { label: 'Gross P&L', value: sig(a.gross), valCls: a.gross >= 0 ? 'kpi-pos' : 'kpi-neg', sub: 'Taxes ' + inr(a.tax) },
+    { label: 'Win rate', value: wr + '%', valCls: 'kpi-neu', sub: wins + ' of ' + trades.length + ' trades' },
     { label: 'Adjustments', value: a.adjTotal === 0 ? '₹0' : sig(a.adjTotal), valCls: a.adjTotal === 0 ? 'kpi-neu' : a.adjTotal > 0 ? 'kpi-pos' : 'kpi-neg', sub: adjustments.length + ' sync' + (adjustments.length !== 1 ? 's' : '') },
-    { label: 'Total Taxes', value: inr(a.tax), valCls: 'kpi-neu', sub: trades.length + ' trade' + (trades.length !== 1 ? 's' : '') },
+    { label: 'Trades net', value: sig(a.tradesNet), valCls: a.tradesNet >= 0 ? 'kpi-pos' : 'kpi-neg', sub: 'After taxes' },
   ]);
 
-  // Running portfolios list
+  // Recent days (grouped)
+  const days = [...new Set(trades.map(t => t.date))].sort().reverse().slice(0, 7);
+  document.getElementById('recent-tag').textContent = 'Last ' + days.length + ' days';
+  const dayName = d => new Date(d + 'T00:00:00Z').toLocaleDateString('en-IN', { weekday: 'short', timeZone: 'UTC' });
+  document.getElementById('recent-list').innerHTML = days.length ? days.map(d => {
+    const tr = trades.filter(t => t.date === d);
+    const tot = tr.reduce((s, t) => s + net(t), 0);
+    return `<div class="dx-day"><div class="dx-day-date"><b>${d.slice(8)}</b><span>${dayName(d)}</span></div>
+      <div class="dx-day-mid">${tr.map(t => { const s = stratOf(t), n = net(t); return `<span class="dx-chip"><span class="cdot" style="background:${s.color};width:7px;height:7px"></span><span class="${pc(n)}">${sig(n)}</span></span>`; }).join('')}
+        <span class="dx-chip" style="color:var(--t3)">${esc(tr[0].symbol || '—')}</span></div>
+      <div class="dx-day-tot ${arrowCls(tot)}">${sig(tot)}</div></div>`;
+  }).join('') : `<div style="padding:18px;text-align:center;color:#555;font-size:13px">No trades yet</div>`;
+
+  // Running portfolios
   const running = portfolios.filter(p => p.active);
   document.getElementById('run-tag').textContent = running.length + ' active';
-  const runEl = document.getElementById('run-list');
-  runEl.innerHTML = running.length ? `<div class="runlist">` + running.map(p => {
+  document.getElementById('run-list').innerHTML = running.length ? `<div class="runlist">` + running.map(p => {
     const set = new Set(p.strategyIds || []);
     const n = trades.filter(t => set.has(t.strategyId)).reduce((s, t) => s + net(t), 0);
     const col = (stratMap[(p.strategyIds || [])[0]] || {}).color || '#888';
     return `<div class="runitem"><span class="cdot" style="background:${col}"></span>
       <div class="ri-info"><div class="ri-sym">${esc(p.name)}</div><div class="ri-date">${(p.strategyIds || []).length} strategies</div></div>
-      <div class="ri-pnl ${pc(n)}">${sig(n)}</div></div>`;
+      <div class="ri-pnl ${arrowCls(n)}">${sig(n)}</div></div>`;
   }).join('') + `</div>` : `<div style="padding:18px;text-align:center;color:#555;font-size:13px">No portfolios running — toggle one on the Portfolios page</div>`;
 
-  // Recent trades
-  const recent = [...trades].sort((x, y) => y.date.localeCompare(x.date)).slice(0, 6);
-  document.getElementById('recent-tag').textContent = recent.length + ' of ' + trades.length;
-  document.getElementById('recent-list').innerHTML = recent.length ? `<div class="runlist">` + recent.map(t => {
-    const s = stratOf(t), n = net(t);
-    return `<div class="runitem"><span class="cdot" style="background:${s.color}"></span>
-      <div class="ri-info"><div class="ri-sym">${esc(t.symbol || '—')}</div><div class="ri-date">${t.date} · ${esc(s.name)} · ${t.lots} lots</div></div>
-      <div class="ri-pnl ${pc(n)}">${sig(n)}</div></div>`;
-  }).join('') + `</div>` : `<div style="padding:18px;text-align:center;color:#555;font-size:13px">No trades yet</div>`;
+  renderDashCharts();
+}
 
-  // Combined curve
+function renderDashCharts() {
+  const cut = dxRangeDays ? new Date(Date.now() - dxRangeDays * 864e5).toISOString().slice(0, 10) : '';
+  const strats = Object.values(stratMap).filter(s => trades.some(t => keyOf(t) === s.id));
+  const allDates = [...new Set(trades.map(t => t.date))].sort();
+  const dates = allDates.filter(d => !cut || d >= cut);
+
+  // P&L curve: cumulative per strategy + total (cumulative from the start, shown for the chosen range)
   killChart('dm');
-  const sorted = [...trades].sort((x, y) => x.date.localeCompare(y.date));
-  if (sorted.length) {
-    let cum = 0; const labels = [], data = [];
-    sorted.forEach(t => { cum += net(t); labels.push(t.date); data.push(cum); });
-    const col = data[data.length - 1] >= 0 ? '#16a34a' : '#dc2626';
-    charts['dm'] = new Chart(document.getElementById('ch-dash'), { type: 'line', data: { labels, datasets: [lineDS(data, col)] }, options: chartOpts() });
+  const leg = document.getElementById('dx-legend');
+  if (dates.length) {
+    const series = strats.map(s => {
+      const by = {}; let c = 0;
+      trades.filter(t => keyOf(t) === s.id).sort((a, b) => a.date.localeCompare(b.date)).forEach(t => { c += net(t); by[t.date] = c; });
+      let last = null; const full = allDates.map(d => { if (by[d] !== undefined) last = by[d]; return last; });
+      return { s, data: full.slice(allDates.length - dates.length) };
+    });
+    let ct = 0; const totBy = {};
+    [...trades].sort((a, b) => a.date.localeCompare(b.date)).forEach(t => { ct += net(t); totBy[t.date] = ct; });
+    const tot = dates.map(d => totBy[d]);
+    const dsets = series.map(x => ({ label: x.s.name, data: x.data, borderColor: x.s.color, backgroundColor: 'transparent', pointRadius: 0, pointHoverRadius: 4, tension: .3, borderWidth: 2, spanGaps: true }));
+    dsets.push({ label: 'Total', data: tot, borderColor: '#e5e7eb', backgroundColor: 'rgba(229,231,235,.06)', fill: true, pointRadius: 0, pointHoverRadius: 4, tension: .3, borderWidth: 2.2 });
+    leg.innerHTML = series.map(x => `<span><i style="background:${x.s.color}"></i>${esc(x.s.name)}</span>`).join('') + `<span><i style="background:#e5e7eb"></i>Total</span>`;
+    charts['dm'] = new Chart(document.getElementById('ch-dash'), { type: 'line', data: { labels: dates, datasets: dsets },
+      options: chartOpts({ interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ' + c.dataset.label + ': ' + sig(c.parsed.y ?? 0) } } } }) });
+  } else leg.innerHTML = '';
+
+  // DD per lot with delta step lines
+  killChart('ddl');
+  const ruledS = strats.filter(s => !s.virtual);
+  if (dates.length && ruledS.length) {
+    const ddsets = ruledS.map(s => {
+      const arr = trades.filter(t => keyOf(t) === s.id).sort((a, b) => a.date.localeCompare(b.date));
+      const dds = computeDD(arr); const by = {};
+      arr.forEach((t, i) => { by[t.date] = Math.round(dds[i].ddpl * 100) / 100; });
+      return { label: s.name, data: dates.map(d => by[d] ?? null), borderColor: s.color, backgroundColor: s.color + '18', fill: true, pointRadius: 0, pointHoverRadius: 4, tension: .25, borderWidth: 2, spanGaps: true };
+    });
+    const minV = Math.min(0, ...ddsets.flatMap(x => x.data.filter(v => v != null)));
+    const step = (ruledS[0].threshold || DEFAULT_THRESHOLD);
+    for (let v = -step; v >= minV - step / 2; v -= step) ddsets.push({ label: 'step', data: dates.map(() => v), borderColor: 'rgba(255,255,255,.18)', borderDash: [4, 4], borderWidth: 1, pointRadius: 0, fill: false });
+    charts['ddl'] = new Chart(document.getElementById('ch-ddlot'), { type: 'line', data: { labels: dates, datasets: ddsets },
+      options: chartOpts({ interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: false }, tooltip: { filter: i => i.dataset.label !== 'step', callbacks: { label: c => ' ' + c.dataset.label + ': ' + (c.parsed.y < 0 ? '−' + inr(Math.abs(c.parsed.y)) : '₹0') + '/lot' } } } }) });
   }
 }
 
@@ -732,7 +864,7 @@ window.tjStatus = function (date) {
     rows[s.name] = trades.filter(t => t.date === d && t.strategyId === s.id)
       .map(t => ({ id: t.id, symbol: t.symbol, lots: t.lots, pnl: t.pnl, tax: t.tax || 0 }));
   });
-  return { ready: appReady, date: d, tradeCount: trades.length, logged: rows, latest: latestDDByStrategy() };
+  return { ready: appReady, date: d, tradeCount: trades.length, logged: rows, latest: latestDDByStrategy(), delta: window.tjDeltaInfo() };
 };
 window.tjQuickLog = async function (entries) {
   if (!me) return { ok: false, error: 'not signed in' };
@@ -777,7 +909,12 @@ window.openStrategyModal = function (id) {
   pickedColor = editing ? editing.color : PALETTE[strategies.length % PALETTE.length];
   openModal(editing ? 'Edit Strategy' : 'New Strategy', `
     <div class="mf"><label>Name</label><input type="text" id="s-name" placeholder="e.g. 200% Strategy" value="${editing ? esc(editing.name) : ''}"></div>
-    <div class="mf"><label>Delta threshold (₹ per lot)</label><input type="number" id="s-thr" min="1" step="100" value="${editing ? editing.threshold : DEFAULT_THRESHOLD}"></div>
+    <div class="mf"><label>Delta threshold / step (₹ per lot)</label><input type="number" id="s-thr" min="1" step="100" value="${editing ? editing.threshold : DEFAULT_THRESHOLD}"></div>
+    <div class="mrow">
+      <div class="mf"><label>Base delta <em>(optional)</em></label><input type="number" id="s-dbase" min="0" step="1" placeholder="e.g. 15" value="${editing && editing.deltaBase != null ? editing.deltaBase : ''}"></div>
+      <div class="mf"><label>Cap delta</label><input type="number" id="s-dcap" min="0" step="1" placeholder="e.g. 20" value="${editing && editing.deltaCap != null ? editing.deltaCap : ''}"></div>
+    </div>
+    <div class="mf"><label>Delta set in AlgoTest <em>(optional)</em></label><input type="number" id="s-dset" min="0" step="1" placeholder="e.g. 17" value="${editing && editing.deltaSet != null ? editing.deltaSet : ''}"></div>
     <div class="mf"><label>Colour</label><div class="color-row" id="s-colors">${PALETTE.map(c => `<div class="color-sw${c === pickedColor ? ' sel' : ''}" style="background:${c}" onclick="pickColor('${c}')"></div>`).join('')}</div></div>`,
     `<button class="btn-ghost" onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="saveStrategy(${editing ? `'${id}'` : 'null'})">${editing ? 'Save' : 'Create'}</button>`);
 };
@@ -793,10 +930,17 @@ window.saveStrategy = async function (id) {
   const threshold = parseFloat(document.getElementById('s-thr').value);
   if (!name) return showToast('Enter a name');
   if (!threshold || threshold < 1) return showToast('Enter a valid threshold');
+  const numOrNull = elId => { const v = document.getElementById(elId).value.trim(); return v === '' ? null : parseFloat(v); };
+  const deltaBase = numOrNull('s-dbase'), deltaCap = numOrNull('s-dcap'), deltaSet = numOrNull('s-dset');
+  if ((deltaBase == null) !== (deltaCap == null)) return showToast('Enter both base and cap delta');
+  if (deltaBase != null && deltaCap < deltaBase) return showToast('Cap must be ≥ base');
+  const prev = id ? strategies.find(x => x.id === id) : null;
+  const extra = { deltaBase, deltaCap, deltaSet };
+  if (deltaSet != null && (!prev || prev.deltaSet !== deltaSet)) extra.deltaSetOn = today();
   setSyncState('syncing');
   try {
-    if (id) await updateDoc(doc(db, 'strategies', id), { name, threshold, color: pickedColor });
-    else await addDoc(collection(db, 'strategies'), { name, threshold, color: pickedColor, createdAt: Date.now(), ownerId: me.uid });
+    if (id) await updateDoc(doc(db, 'strategies', id), { name, threshold, color: pickedColor, ...extra });
+    else await addDoc(collection(db, 'strategies'), { name, threshold, color: pickedColor, ...extra, createdAt: Date.now(), ownerId: me.uid });
     closeModal(); showToast(id ? 'Strategy saved ✓' : 'Strategy created ✓');
   } catch (e) { setSyncState('error'); showToast('Error'); console.error(e); }
 };
