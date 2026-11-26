@@ -1,8 +1,4 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// PASTE YOUR FIREBASE CONFIG HERE
-// Get it from: Firebase Console → Project Settings → Your Apps → SDK setup
-// ─────────────────────────────────────────────────────────────────────────────
-
+// Firebase web config (public identifiers; access is enforced by firestore.rules)
 export const firebaseConfig = {
   apiKey:            "AIzaSyAFdj4-ZqFEeqQrpEtjFaJggX1-_4ET2CI",
   authDomain:        "trade-journal-321e1.firebaseapp.com",

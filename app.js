@@ -1,3 +1,4 @@
+/* global Chart */
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc, deleteDoc, updateDoc, onSnapshot, query, where, writeBatch }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
@@ -9,7 +10,7 @@ const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp);
 const auth = getAuth(fbApp);
 // secondary app — lets a manager create child logins without dropping their own session
-let secondaryApp; try { secondaryApp = initializeApp(firebaseConfig, 'secondary'); } catch (_) {}
+let secondaryApp; try { secondaryApp = initializeApp(firebaseConfig, 'secondary'); } catch (err) { console.warn('Secondary Firebase app unavailable', err); }
 const secondaryAuth = secondaryApp ? getAuth(secondaryApp) : null;
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -55,7 +56,7 @@ function boot() {
 // one-time: stamp ownerId on pre-auth (legacy) docs — superadmin only
 async function claimLegacy() {
   const flag = 'tj_claimed_' + me.uid;
-  try { if (localStorage.getItem(flag) === '1') return; } catch (_) {}
+  try { if (localStorage.getItem(flag) === '1') return; } catch (err) { console.warn('localStorage unavailable', err); }
   for (const coll of ['trades', 'strategies', 'portfolios', 'adjustments']) {
     const snap = await getDocs(collection(db, coll));
     const orphans = snap.docs.filter(d => d.data().ownerId === undefined);
@@ -65,7 +66,7 @@ async function claimLegacy() {
       await b.commit();
     }
   }
-  try { localStorage.setItem(flag, '1'); } catch (_) {}
+  try { localStorage.setItem(flag, '1'); } catch (err) { console.warn('localStorage unavailable', err); }
 }
 
 async function loadChildren() {
@@ -84,7 +85,7 @@ async function loadChildren() {
 function setContext(ownerId, viewProfile) {
   ctxOwnerId = ownerId;
   viewing = viewProfile || null;
-  dataUnsubs.forEach(u => { try { u(); } catch (_) {} });
+  dataUnsubs.forEach(u => { try { u(); } catch (err) { console.warn('Unsubscribe failed', err); } });
   dataUnsubs = [];
   trades = []; strategies = []; portfolios = []; adjustments = [];
   setSyncState('syncing');
@@ -130,14 +131,18 @@ function inr(n) { return '₹' + fmt(n); }
 function sig(n) { return (n >= 0 ? '+' : '−') + inr(Math.abs(n)); }
 function pc(n) { return n > 0 ? 'vpos' : n < 0 ? 'vneg' : 'vneu'; }
 const net = t => (t.pnl || 0) - (t.tax || 0);
-const esc = s => (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// Single HTML sink: every interpolated value passed here is escaped with esc() / safeColor() at the call site
+function setHTML(el, html) { if (el) el.innerHTML = html; }
+// Only allow plain colour values into style attributes
+const safeColor = c => (/^#[0-9a-f]{3,8}$/i.test(c || '') || /^rgba?\([\d\s.,%]+\)$/i.test(c || '') ? c : '#888888');
 
 // ── Strategy resolution (handles legacy 200/300 trades) ──────────────────────
 function keyOf(t) { return t.strategyId || (t.strat ? 'L:' + t.strat : 'L:?'); }
 
 function buildStratMap() {
   const m = {};
-  strategies.forEach(s => { m[s.id] = { ...s, virtual: false, threshold: s.threshold ?? DEFAULT_THRESHOLD }; });
+  strategies.forEach(s => { m[s.id] = { ...s, color: safeColor(s.color), virtual: false, threshold: s.threshold ?? DEFAULT_THRESHOLD }; });
   trades.forEach(t => {
     const k = keyOf(t);
     if (!m[k]) {
@@ -176,7 +181,7 @@ function ddMapAll() {
   const map = {};
   const groups = {};
   trades.forEach(t => { const k = keyOf(t); (groups[k] = groups[k] || []).push(t); });
-  Object.entries(groups).forEach(([k, arr]) => {
+  Object.values(groups).forEach(arr => {
     arr.sort((a, b) => a.date.localeCompare(b.date));
     computeDD(arr).forEach((d, i) => { map[arr[i].id] = d; });
   });
@@ -213,11 +218,11 @@ function stratTag(s) { return `<span class="strat-tag dyn" style="background:${s
 
 function renderKPIs(elId, items) {
   const el = document.getElementById(elId); if (!el) return;
-  el.innerHTML = items.map(k => `<div class="kpi">
+  setHTML(el, items.map(k => `<div class="kpi">
       <div class="kpi-top"><span class="kpi-lbl">${k.label}</span>${k.dot ? `<span class="kpi-dot" style="background:${k.dot}"></span>` : ''}</div>
       <div class="kpi-val ${k.valCls}">${k.value}</div>
       ${k.sub ? `<div class="kpi-sub">${k.sub}</div>` : ''}
-    </div>`).join('');
+    </div>`).join(''));
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
@@ -299,7 +304,7 @@ function renderDashboard() {
   // Delta control
   const dEl = document.getElementById('dx-delta');
   const ro = isRO();
-  dEl.innerHTML = dashStrats().map(s => {
+  setHTML(dEl, dashStrats().map(s => {
     const d = deltaInfo(s);
     if (!d) return `<div class="dx-dcard"><div class="dx-dc-top"><span class="dx-dc-name"><span class="cdot" style="background:${s.color}"></span>${esc(s.name)}</span></div>
       <div style="font-size:12.5px;color:var(--t2);line-height:1.5;margin-bottom:12px">No delta rule yet. Add a base and cap delta to see the target here.</div>
@@ -317,7 +322,7 @@ function renderDashboard() {
       <div class="dx-dc-row"><span>Set in AlgoTest: <b style="color:var(--t1);font-family:var(--mono)">${d.set ?? '—'}</b>${d.setOn ? ` <span style="color:var(--t3)">· ${d.setOn}</span>` : ''}</span>
         ${!ro && d.set !== d.target ? `<button class="dx-btn" onclick="markDeltaSet('${s.id}',${d.target})">Mark ${d.target} as set</button>` : ''}</div>
     </div>`;
-  }).join('') || `<div class="dx-skel"></div>`;
+  }).join('') || `<div class="dx-skel"></div>`);
 
   // Quick stats
   const wins = trades.filter(t => net(t) > 0).length;
@@ -333,26 +338,26 @@ function renderDashboard() {
   const days = [...new Set(trades.map(t => t.date))].sort().reverse().slice(0, 7);
   document.getElementById('recent-tag').textContent = 'Last ' + days.length + ' days';
   const dayName = d => new Date(d + 'T00:00:00Z').toLocaleDateString('en-IN', { weekday: 'short', timeZone: 'UTC' });
-  document.getElementById('recent-list').innerHTML = days.length ? days.map(d => {
+  setHTML(document.getElementById('recent-list'), days.length ? days.map(d => {
     const tr = trades.filter(t => t.date === d);
     const tot = tr.reduce((s, t) => s + net(t), 0);
     return `<div class="dx-day"><div class="dx-day-date"><b>${d.slice(8)}</b><span>${dayName(d)}</span></div>
       <div class="dx-day-mid">${tr.slice().sort((x, y) => stratOf(x).name.localeCompare(stratOf(y).name)).map(t => { const s = stratOf(t), n = net(t); return `<span class="dx-chip"><span class="cdot" style="background:${s.color};width:7px;height:7px"></span><span class="${pc(n)}">${sig(n)}</span></span>`; }).join('')}
         <span class="dx-chip" style="color:var(--t3)">${esc(tr[0].symbol || '—')}</span></div>
       <div class="dx-day-tot ${arrowCls(tot)}">${sig(tot)}</div></div>`;
-  }).join('') : `<div style="padding:18px;text-align:center;color:#555;font-size:13px">No trades yet</div>`;
+  }).join('') : `<div style="padding:18px;text-align:center;color:#555;font-size:13px">No trades yet</div>`);
 
   // Running portfolios
   const running = portfolios.filter(p => p.active);
   document.getElementById('run-tag').textContent = running.length + ' active';
-  document.getElementById('run-list').innerHTML = running.length ? `<div class="runlist">` + running.map(p => {
+  setHTML(document.getElementById('run-list'), running.length ? `<div class="runlist">` + running.map(p => {
     const set = new Set(p.strategyIds || []);
     const n = trades.filter(t => set.has(t.strategyId)).reduce((s, t) => s + net(t), 0);
     const col = (stratMap[(p.strategyIds || [])[0]] || {}).color || '#888';
     return `<div class="runitem"><span class="cdot" style="background:${col}"></span>
       <div class="ri-info"><div class="ri-sym">${esc(p.name)}</div><div class="ri-date">${(p.strategyIds || []).length} strategies</div></div>
       <div class="ri-pnl ${arrowCls(n)}">${sig(n)}</div></div>`;
-  }).join('') + `</div>` : `<div style="padding:18px;text-align:center;color:#555;font-size:13px">No portfolios running — toggle one on the Portfolios page</div>`;
+  }).join('') + `</div>` : `<div style="padding:18px;text-align:center;color:#555;font-size:13px">No portfolios running — toggle one on the Portfolios page</div>`);
 
   renderDashCharts();
 }
@@ -385,10 +390,10 @@ function renderDashCharts() {
     const tot = dates.map(d => totBy[d]);
     const dsets = series.map(x => ({ label: x.s.name, data: x.data, borderColor: x.s.color, backgroundColor: 'transparent', pointRadius: 0, pointHoverRadius: 4, cubicInterpolationMode: 'monotone', borderWidth: 2, spanGaps: true }));
     dsets.push({ label: 'Total (all trades)', data: tot, borderColor: '#e5e7eb', backgroundColor: 'rgba(229,231,235,.06)', fill: true, pointRadius: 0, pointHoverRadius: 4, cubicInterpolationMode: 'monotone', borderWidth: 2.2 });
-    leg.innerHTML = series.map(x => `<span><i style="background:${x.s.color}"></i>${esc(x.s.name)}</span>`).join('') + `<span><i style="background:#e5e7eb"></i>Total (all trades)</span>`;
+    setHTML(leg, series.map(x => `<span><i style="background:${x.s.color}"></i>${esc(x.s.name)}</span>`).join('') + `<span><i style="background:#e5e7eb"></i>Total (all trades)</span>`);
     charts['dm'] = new Chart(document.getElementById('ch-dash'), { type: 'line', data: { labels: dates, datasets: dsets },
       options: chartOpts({ interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ' + c.dataset.label + ': ' + sig(c.parsed.y ?? 0) } } } }) });
-  } else leg.innerHTML = '';
+  } else setHTML(leg, '');
 
   // DD per lot with delta step lines
   killChart('ddl');
@@ -413,11 +418,11 @@ function buildDates() {
   const dates = [...new Set(trades.map(t => t.date))].sort();
   ['fil-from', 'fil-to'].forEach(id => {
     const el = document.getElementById(id); const cur = el.value;
-    el.innerHTML = `<option value="">${id === 'fil-from' ? 'From…' : 'To…'}</option>` + dates.map(d => `<option${d === cur ? ' selected' : ''}>${d}</option>`).join('');
+    setHTML(el, `<option value="">${id === 'fil-from' ? 'From…' : 'To…'}</option>` + dates.map(d => `<option${d === cur ? ' selected' : ''}>${esc(d)}</option>`).join(''));
   });
   const fs = document.getElementById('fil-strat'); const cur = fs.value;
-  fs.innerHTML = `<option value="">All Strategies</option>` + Object.values(stratMap)
-    .map(s => `<option value="${s.id}"${s.id === cur ? ' selected' : ''}>${esc(s.name)}${s.virtual ? ' (legacy)' : ''}</option>`).join('');
+  setHTML(fs, `<option value="">All Strategies</option>` + Object.values(stratMap)
+    .map(s => `<option value="${s.id}"${s.id === cur ? ' selected' : ''}>${esc(s.name)}${s.virtual ? ' (legacy)' : ''}</option>`).join(''));
 }
 
 function renderAllTrades() {
@@ -445,11 +450,11 @@ function renderAllTrades() {
 
   document.getElementById('all-sub').textContent = `${list.length} of ${trades.length} trades`;
   const tb = document.getElementById('tbody-all');
-  tb.innerHTML = !list.length ? emptyRow(12, 'No trades match') : list.map((t, i) => {
+  setHTML(tb, !list.length ? emptyRow(12, 'No trades match') : list.map((t, i) => {
     const s = stratOf(t), d = dd[t.id], al = isAlert(d, s.threshold), n = net(t);
     return `<tr class="${al ? 'tr-alert' : t.pnl < 0 ? 'tr-loss' : ''}">
       <td class="mono" style="text-align:center;color:#555">${i + 1}</td>
-      <td class="mono">${t.date}</td>
+      <td class="mono">${esc(t.date)}</td>
       <td>${stratTag(s)}</td>
       <td><span class="sym-tag">${esc(t.symbol || '—')}</span></td>
       <td class="mono">${t.lots}</td>
@@ -461,7 +466,7 @@ function renderAllTrades() {
       <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#555;font-size:12px" title="${esc(t.notes)}">${esc(t.notes) || '—'}</td>
       <td><button class="del-btn" onclick="deleteTrade('${t.id}')">×</button></td>
     </tr>`;
-  }).join('');
+  }).join(''));
   renderSymTable();
 }
 
@@ -471,11 +476,11 @@ function renderSymTable() {
     const s = t.symbol || 'OTHER';
     if (!map[s]) map[s] = { n: 0, g: 0, tx: 0, w: 0, l: 0 };
     map[s].n++; map[s].g += (t.pnl || 0); map[s].tx += (t.tax || 0);
-    t.pnl >= 0 ? map[s].w++ : map[s].l++;
+    if (t.pnl >= 0) map[s].w++; else map[s].l++;
   });
   const rows = Object.entries(map).sort((a, b) => a[1].g - b[1].g);
   document.getElementById('sym-count').textContent = rows.length + ' symbol' + (rows.length !== 1 ? 's' : '');
-  document.getElementById('tbody-sym').innerHTML = !rows.length ? emptyRow(8) : rows.map(([sym, s]) => {
+  setHTML(document.getElementById('tbody-sym'), !rows.length ? emptyRow(8) : rows.map(([sym, s]) => {
     const n = s.g - s.tx, wr = s.n > 0 ? Math.round(s.w / s.n * 100) : 0;
     return `<tr class="${n < 0 ? 'tr-loss' : ''}">
       <td><span class="sym-tag">${esc(sym)}</span></td>
@@ -487,7 +492,7 @@ function renderSymTable() {
       <td class="mono" style="color:var(--red)">${s.l}</td>
       <td><div class="wr-row"><span class="mono ${wr >= 50 ? 'vpos' : 'vneg'}">${wr}%</span><div class="wr-bar"><div class="wr-fill" style="width:${wr}%;background:${wr >= 50 ? 'var(--green)' : 'var(--red)'}"></div></div></div></td>
     </tr>`;
-  }).join('');
+  }).join(''));
 }
 
 // ── Strategies page ──────────────────────────────────────────────────────────
@@ -508,10 +513,10 @@ function renderStrategies() {
   const list = Object.values(stratMap);
   const el = document.getElementById('strat-cards');
   if (!list.length) {
-    el.innerHTML = `<div class="card" style="grid-column:1/-1;text-align:center;padding:40px"><div style="color:#888;margin-bottom:14px">No strategies yet.</div><button class="btn-primary" onclick="openStrategyModal()">Create your first strategy</button></div>`;
+    setHTML(el, `<div class="card" style="grid-column:1/-1;text-align:center;padding:40px"><div style="color:#888;margin-bottom:14px">No strategies yet.</div><button class="btn-primary" onclick="openStrategyModal()">Create your first strategy</button></div>`);
     return;
   }
-  el.innerHTML = list.map(s => {
+  setHTML(el, list.map(s => {
     const st = strategyStats(s);
     return `<div class="scard">
       <div class="scard-open" onclick="openStrategy('${s.id}')"></div>
@@ -534,13 +539,13 @@ function renderStrategies() {
         <span class="spill ${st.alerts > 0 ? 'warn' : ''}">↑ ${st.alerts} alert${st.alerts !== 1 ? 's' : ''}</span>
       </div>
     </div>`;
-  }).join('');
+  }).join(''));
 }
 
 function renderStrategyDetail() {
   const s = stratMap[curStratId];
   if (!s) { goPage('strategies'); return; }
-  document.getElementById('sd-title').innerHTML = `<span class="cdot" style="display:inline-block;background:${s.color};margin-right:9px"></span>${esc(s.name)}`;
+  setHTML(document.getElementById('sd-title'), `<span class="cdot" style="display:inline-block;background:${s.color};margin-right:9px"></span>${esc(s.name)}`);
   document.getElementById('sd-sub').textContent = `Delta threshold ₹${fmt(s.threshold)}/lot · Peak-based drawdown · never resets`;
   const st = strategyStats(s);
   renderKPIs('kpi-sd', [
@@ -551,11 +556,11 @@ function renderStrategyDetail() {
   ]);
 
   const tb = document.getElementById('tbody-sd');
-  tb.innerHTML = !st.arr.length ? emptyRow(12) : st.arr.map((t, i) => {
+  setHTML(tb, !st.arr.length ? emptyRow(12) : st.arr.map((t, i) => {
     const d = st.dds[i], n = net(t);
     return `<tr class="${isAlert(d, s.threshold) ? 'tr-alert' : t.pnl < 0 ? 'tr-loss' : ''}">
       <td class="mono" style="text-align:center;color:#555">${i + 1}</td>
-      <td class="mono">${t.date}</td>
+      <td class="mono">${esc(t.date)}</td>
       <td><span class="sym-tag">${esc(t.symbol || '—')}</span></td>
       <td class="mono">${t.lots}</td>
       <td class="${pc(t.pnl)}">${sig(t.pnl)}</td>
@@ -567,7 +572,7 @@ function renderStrategyDetail() {
       <td>${ddCell(d, s.threshold)}</td>
       <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#555;font-size:12px">${esc(t.notes) || '—'}</td>
     </tr>`;
-  }).join('');
+  }).join(''));
 
   killChart('sd');
   if (st.arr.length) {
@@ -586,10 +591,10 @@ function portfolioTrades(p) {
 function renderPortfolios() {
   const el = document.getElementById('pf-cards');
   if (!portfolios.length) {
-    el.innerHTML = `<div class="card" style="grid-column:1/-1;text-align:center;padding:40px"><div style="color:#888;margin-bottom:14px">No portfolios yet. A portfolio bundles strategies together.</div><button class="btn-primary" onclick="openPortfolioModal()">Create a portfolio</button></div>`;
+    setHTML(el, `<div class="card" style="grid-column:1/-1;text-align:center;padding:40px"><div style="color:#888;margin-bottom:14px">No portfolios yet. A portfolio bundles strategies together.</div><button class="btn-primary" onclick="openPortfolioModal()">Create a portfolio</button></div>`);
     return;
   }
-  el.innerHTML = portfolios.map(p => {
+  setHTML(el, portfolios.map(p => {
     const arr = portfolioTrades(p);
     const n = arr.reduce((s, t) => s + net(t), 0);
     const chips = (p.strategyIds || []).map(id => {
@@ -620,7 +625,7 @@ function renderPortfolios() {
         <span class="switch-lbl ${p.active ? 'on' : ''}">${p.active ? 'Running' : 'Off'}</span>
       </div>
     </div>`;
-  }).join('');
+  }).join(''));
 }
 
 function renderPortfolioDetail() {
@@ -640,7 +645,7 @@ function renderPortfolioDetail() {
   ]);
 
   const tb = document.getElementById('tbody-pd');
-  tb.innerHTML = !(p.strategyIds || []).length ? emptyRow(6, 'No strategies in this portfolio') : (p.strategyIds || []).map(id => {
+  setHTML(tb, !(p.strategyIds || []).length ? emptyRow(6, 'No strategies in this portfolio') : (p.strategyIds || []).map(id => {
     const s = stratMap[id]; if (!s) return '';
     const st = strategyStats(s);
     return `<tr><td>${stratTag(s)}</td><td class="mono">${st.count}</td>
@@ -648,7 +653,7 @@ function renderPortfolioDetail() {
       <td class="mono">${inr(st.tax)}</td>
       <td class="${pc(st.net)}">${sig(st.net)}</td>
       <td class="${pc(st.maxDD)}">${st.maxDD < 0 ? '−' + inr(Math.abs(st.maxDD)) : '—'}</td></tr>`;
-  }).join('');
+  }).join(''));
 
   killChart('pd');
   if (arr.length) {
@@ -672,16 +677,16 @@ function renderAdjustments() {
   // Running account net after each adjustment (chronological)
   const ordered = [...adjustments].sort((x, y) => x.date.localeCompare(y.date));
   const tb = document.getElementById('tbody-adj');
-  tb.innerHTML = !ordered.length ? emptyRow(7, 'No adjustments yet — use Sync P&L to reconcile') : ordered.map((adj, i) => {
+  setHTML(tb, !ordered.length ? emptyRow(7, 'No adjustments yet — use Sync P&L to reconcile') : ordered.map((adj, i) => {
     const amt = adj.amount || 0;
     return `<tr><td class="mono" style="text-align:center;color:#555">${i + 1}</td>
-      <td class="mono">${adj.date}</td>
+      <td class="mono">${esc(adj.date)}</td>
       <td class="mono">${sig(adj.actualPnl || 0)}</td>
       <td class="adj-amt ${pc(amt)}">${sig(amt)}</td>
       <td class="mono">${sig(adj.actualPnl || 0)}</td>
       <td style="color:#888;font-size:12px">${esc(adj.note) || '—'}</td>
       <td><button class="del-btn" onclick="deleteAdjustment('${adj.id}')">×</button></td></tr>`;
-  }).join('');
+  }).join(''));
 }
 
 // ── Charts ─────────────────────────────────────────────────────────────────
@@ -769,7 +774,7 @@ function renderAll() {
 }
 
 // ── Navigation ───────────────────────────────────────────────────────────────
-window.goPage = function (name) {
+function goPage(name) {
   curPage = name;
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   const navName = (name === 'strategy-detail') ? 'strategies' : (name === 'portfolio-detail') ? 'portfolios' : name;
@@ -782,23 +787,23 @@ window.goPage = function (name) {
   if (name === 'accounts') renderAccounts();
   closeDrawer();
   document.getElementById('content').scrollTop = 0;
-};
+}
 window.openStrategy = function (id) { curStratId = id; goPage('strategy-detail'); };
 window.openPortfolio = function (id) { curPfId = id; goPage('portfolio-detail'); };
 
 // ── Drawer ───────────────────────────────────────────────────────────────────
 window.openDrawer = function () { document.getElementById('sidebar').classList.add('open'); document.getElementById('drawer-bd').classList.add('show'); };
-window.closeDrawer = function () { document.getElementById('sidebar').classList.remove('open'); document.getElementById('drawer-bd').classList.remove('show'); };
+function closeDrawer() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('drawer-bd').classList.remove('show'); }
 
 // ── Generic modal ────────────────────────────────────────────────────────────
 function openModal(title, bodyHTML, footHTML) {
   document.getElementById('modal-title-text').textContent = title;
-  document.getElementById('modal-body').innerHTML = bodyHTML;
-  document.getElementById('modal-foot').innerHTML = footHTML;
+  setHTML(document.getElementById('modal-body'), bodyHTML);
+  setHTML(document.getElementById('modal-foot'), footHTML);
   document.getElementById('modal').classList.add('open');
   document.getElementById('modal-bd').classList.add('show');
 }
-window.closeModal = function () { document.getElementById('modal').classList.remove('open'); document.getElementById('modal-bd').classList.remove('show'); };
+function closeModal() { document.getElementById('modal').classList.remove('open'); document.getElementById('modal-bd').classList.remove('show'); }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeDrawer(); } });
 
 const today = () => new Date().toISOString().split('T')[0];
@@ -906,7 +911,7 @@ window.deleteTrade = async function (id) {
   if (!confirm('Delete this trade?')) return;
   setSyncState('syncing');
   try { await deleteDoc(doc(db, 'trades', id)); showToast('Trade removed'); }
-  catch (e) { setSyncState('error'); showToast('Error'); }
+  catch (e) { setSyncState('error'); showToast('Error'); console.error(e); }
 };
 
 // ── Strategy modal ───────────────────────────────────────────────────────────
@@ -967,7 +972,7 @@ window.deleteStrategy = async function (id) {
     await Promise.all(portfolios.filter(p => (p.strategyIds || []).includes(id))
       .map(p => updateDoc(doc(db, 'portfolios', p.id), { strategyIds: p.strategyIds.filter(x => x !== id) })));
     showToast('Strategy deleted');
-  } catch (e) { setSyncState('error'); showToast('Error'); }
+  } catch (e) { setSyncState('error'); showToast('Error'); console.error(e); }
 };
 
 // ── Portfolio modal ──────────────────────────────────────────────────────────
@@ -1013,14 +1018,14 @@ window.savePortfolio = async function (id) {
 window.togglePortfolio = async function (id, on) {
   if (roGuard()) return;
   try { await updateDoc(doc(db, 'portfolios', id), { active: on }); showToast(on ? 'Running' : 'Stopped'); }
-  catch (e) { showToast('Error'); }
+  catch (e) { showToast('Error'); console.error(e); }
 };
 window.deletePortfolio = async function (id) {
   if (roGuard()) return;
   if (!confirm('Delete this portfolio? (Trades and strategies are not affected.)')) return;
   setSyncState('syncing');
   try { await deleteDoc(doc(db, 'portfolios', id)); showToast('Portfolio deleted'); }
-  catch (e) { setSyncState('error'); showToast('Error'); }
+  catch (e) { setSyncState('error'); showToast('Error'); console.error(e); }
 };
 
 // ── Sync P&L (adjustment) modal ──────────────────────────────────────────────
@@ -1041,7 +1046,7 @@ window.openSyncModal = function () {
     `<button class="btn-ghost" onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="addAdjustment()">Log Adjustment</button>`);
   syncPreview();
 };
-window.syncPreview = function () {
+function syncPreview() {
   const a = accountTotals();
   const v = parseFloat(document.getElementById('a-actual').value);
   const actEl = document.getElementById('sp-actual'), dEl = document.getElementById('sp-delta');
@@ -1050,7 +1055,7 @@ window.syncPreview = function () {
   actEl.textContent = sig(v);
   dEl.textContent = sig(delta);
   dEl.className = 'v ' + (delta > 0 ? 'vpos' : delta < 0 ? 'vneg' : 'vneu');
-};
+}
 window.addAdjustment = async function () {
   const date = document.getElementById('a-date').value;
   const actualPnl = parseFloat(document.getElementById('a-actual').value);
@@ -1070,7 +1075,7 @@ window.deleteAdjustment = async function (id) {
   if (!confirm('Delete this adjustment?')) return;
   setSyncState('syncing');
   try { await deleteDoc(doc(db, 'adjustments', id)); showToast('Adjustment removed'); }
-  catch (e) { setSyncState('error'); showToast('Error'); }
+  catch (e) { setSyncState('error'); showToast('Error'); console.error(e); }
 };
 
 // ── Migrate legacy 200/300 trades to real strategies ─────────────────────────
@@ -1274,7 +1279,7 @@ window.doLogin = async function () {
   try { await signInWithEmailAndPassword(auth, email, pw); }
   catch (e) { err.textContent = loginErr(e); err.style.display = 'block'; }
 };
-window.doLogout = async function () { try { await signOut(auth); location.reload(); } catch (_) {} };
+window.doLogout = async function () { try { await signOut(auth); location.reload(); } catch (err) { console.error(err); showToast('Sign-out failed'); } };
 
 // superadmin setup has been disabled — the superadmin already exists.
 function loginErr(e) {
@@ -1289,8 +1294,8 @@ async function setDocProfile(uid, data) { await setDoc(doc(db, 'users', uid), da
 // top-bar identity + view banner
 function renderTopUser() {
   const el = document.getElementById('tb-user'); if (!el) return;
-  el.innerHTML = `<div class="user-chip"><span class="user-name">${esc(me.displayName || me.email)}</span><span class="user-role">${me.role}</span></div>
-    <button class="tb-logout" title="Sign out" onclick="doLogout()"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M6 2H3a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3M10 10l3-2.5L10 5M13 7.5H6" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+  setHTML(el, `<div class="user-chip"><span class="user-name">${esc(me.displayName || me.email)}</span><span class="user-role">${esc(me.role)}</span></div>
+    <button class="tb-logout" title="Sign out" onclick="doLogout()"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M6 2H3a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3M10 10l3-2.5L10 5M13 7.5H6" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`);
   // show/hide manage-only nav
   document.querySelectorAll('[data-page="accounts"]').forEach(b => b.style.display = canManage() ? '' : 'none');
 }
@@ -1299,9 +1304,9 @@ function renderViewBanner() {
   if (!b) return;
   if (isRO()) {
     b.style.display = 'flex';
-    b.innerHTML = `<span>Viewing <b>${esc(viewing.displayName || viewing.email)}</b> — read-only</span>
-      <button onclick="exitView()">Back to my account</button>`;
-  } else { b.style.display = 'none'; b.innerHTML = ''; }
+    setHTML(b, `<span>Viewing <b>${esc(viewing.displayName || viewing.email)}</b> — read-only</span>
+      <button onclick="exitView()">Back to my account</button>`);
+  } else { b.style.display = 'none'; setHTML(b, ''); }
 }
 
 // ── Accounts page ─────────────────────────────────────────────────────────────
@@ -1310,12 +1315,12 @@ async function renderAccounts() {
   const el = document.getElementById('acct-list');
   if (!el) return;
   if (!children.length) {
-    el.innerHTML = `<div class="card" style="grid-column:1/-1;text-align:center;padding:40px"><div style="color:#888;margin-bottom:14px">No accounts yet. Create one to give someone their own isolated journal.</div><button class="btn-primary" onclick="openAccountModal()">Create account</button></div>`;
+    setHTML(el, `<div class="card" style="grid-column:1/-1;text-align:center;padding:40px"><div style="color:#888;margin-bottom:14px">No accounts yet. Create one to give someone their own isolated journal.</div><button class="btn-primary" onclick="openAccountModal()">Create account</button></div>`);
     return;
   }
   const nameById = { [me.uid]: (me.displayName || me.email) + ' (you)' };
   children.forEach(c => { nameById[c.uid] = c.displayName || c.email; });
-  el.innerHTML = children.map(c => {
+  setHTML(el, children.map(c => {
     const isDirect = c.parentId === me.uid;
     const creator = nameById[c.parentId] || '—';
     const canDel = me.role === 'superadmin' && c.role !== 'superadmin';
@@ -1329,10 +1334,10 @@ async function renderAccounts() {
         </div>
       </div>
       <div class="scard-meta" style="margin-bottom:8px">${esc(c.email)}</div>
-      <div class="scard-stats" style="margin-bottom:16px"><span class="spill">${c.role}</span>${me.role === 'superadmin' && !isDirect ? `<span class="spill">by ${esc(creator)}</span>` : ''}</div>
+      <div class="scard-stats" style="margin-bottom:16px"><span class="spill">${esc(c.role)}</span>${me.role === 'superadmin' && !isDirect ? `<span class="spill">by ${esc(creator)}</span>` : ''}</div>
       <button class="f-btn" style="width:100%;height:36px" onclick="viewAccount('${c.uid}')">View P&amp;L (read-only)</button>
     </div>`;
-  }).join('');
+  }).join(''));
 }
 
 window.openAccountModal = function () {
@@ -1410,11 +1415,13 @@ window.deleteAccount = async function (uid) {
 };
 
 let toastT;
-window.showToast = function (msg) {
+function showToast(msg) {
   const el = document.getElementById('toast');
   el.textContent = msg; el.classList.add('show');
   clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), 2500);
-};
+}
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 boot();
+
+Object.assign(window, { goPage, closeDrawer, closeModal, syncPreview, showToast });
