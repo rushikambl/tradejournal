@@ -313,7 +313,7 @@ function renderDashboard() {
         <div><div class="dx-dc-lbl" style="text-align:right">DD per lot</div><div class="dx-dc-dd ${d.ddpl < 0 ? 'vneg' : 'vneu'}">${d.ddpl < 0 ? '−' + inr(Math.abs(d.ddpl)) : '₹0'}</div></div>
       </div>
       <div class="dx-bar" role="progressbar" aria-valuenow="${d.pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Progress to next delta step"><i style="width:${d.pct}%"></i></div>
-      <div class="dx-dc-foot"><span>base ${s.deltaBase} · cap ${s.deltaCap} · step ${inr(d.step)}</span><span>${d.capped ? 'at cap' : inr(d.toNext) + ' to ' + (d.target + 1)}</span></div>
+      <div class="dx-dc-foot"><span>${s.deltaBase} → cap ${s.deltaCap}</span><span>${d.capped ? 'at cap' : inr(Math.ceil(d.toNext)) + ' more → ' + (d.target + 1)}</span></div>
       <div class="dx-dc-row"><span>Set in AlgoTest: <b style="color:var(--t1);font-family:var(--mono)">${d.set ?? '—'}</b>${d.setOn ? ` <span style="color:var(--t3)">· ${d.setOn}</span>` : ''}</span>
         ${!ro && d.set !== d.target ? `<button class="dx-btn" onclick="markDeltaSet('${s.id}',${d.target})">Mark ${d.target} as set</button>` : ''}</div>
     </div>`;
