@@ -707,6 +707,61 @@ window.addTrade = async function () {
   catch (e) { setSyncState('error'); showToast('Error — check connection'); console.error(e); }
 };
 
+// ── Quick-log helper (no UI; used for automated daily logging) ──────────────
+// tjStatus(date)  → today's rows per strategy + latest DD/lot per strategy
+// tjQuickLog([{date, strategy, symbol, lots, pnl, tax, notes}])
+//   strategy = strategy name (e.g. '200% Strategy'); skips any date+strategy already logged
+function latestDDByStrategy() {
+  const out = {};
+  realStrategies().forEach(s => {
+    const arr = trades.filter(t => keyOf(t) === s.id).sort((a, b) => a.date.localeCompare(b.date));
+    const dds = computeDD(arr);
+    const last = dds[dds.length - 1];
+    out[s.name] = arr.length ? {
+      lastDate: arr[arr.length - 1].date,
+      dd: last ? Math.round(last.dd * 100) / 100 : 0,
+      ddPerLot: last ? Math.round(last.ddpl * 100) / 100 : 0,
+    } : null;
+  });
+  return out;
+}
+window.tjStatus = function (date) {
+  const d = date || today();
+  const rows = {};
+  realStrategies().forEach(s => {
+    rows[s.name] = trades.filter(t => t.date === d && t.strategyId === s.id)
+      .map(t => ({ id: t.id, symbol: t.symbol, lots: t.lots, pnl: t.pnl, tax: t.tax || 0 }));
+  });
+  return { ready: appReady, date: d, tradeCount: trades.length, logged: rows, latest: latestDDByStrategy() };
+};
+window.tjQuickLog = async function (entries) {
+  if (!me) return { ok: false, error: 'not signed in' };
+  if (isRO()) return { ok: false, error: 'read-only (viewing another account)' };
+  const byName = {};
+  realStrategies().forEach(s => { byName[s.name.trim().toLowerCase()] = s; });
+  const added = [], skipped = [], errors = [];
+  const batch = writeBatch(db);
+  (entries || []).forEach((e, i) => {
+    const s = byName[String(e.strategy || '').trim().toLowerCase()];
+    const date = e.date || today();
+    const lots = parseFloat(e.lots), pnl = parseFloat(e.pnl), tax = parseFloat(e.tax) || 0;
+    if (!s) return errors.push({ i, error: 'unknown strategy: ' + e.strategy });
+    if (!lots || lots <= 0 || isNaN(pnl)) return errors.push({ i, error: 'invalid lots/pnl' });
+    if (trades.some(t => t.date === date && t.strategyId === s.id)) return skipped.push({ date, strategy: s.name });
+    batch.set(doc(collection(db, 'trades')), {
+      date, strategyId: s.id, symbol: e.symbol || 'OTHER', lots, pnl, tax, notes: (e.notes || '').trim(), ownerId: me.uid,
+    });
+    added.push({ date, strategy: s.name, pnl, tax });
+  });
+  if (errors.length) return { ok: false, added: [], skipped, errors };
+  if (added.length) {
+    setSyncState('syncing');
+    try { await batch.commit(); showToast(added.length + ' trade' + (added.length > 1 ? 's' : '') + ' added ✓'); }
+    catch (err) { setSyncState('error'); console.error(err); return { ok: false, error: String(err) }; }
+  }
+  return { ok: true, added, skipped };
+};
+
 window.deleteTrade = async function (id) {
   if (roGuard()) return;
   if (!confirm('Delete this trade?')) return;
