@@ -586,3 +586,47 @@ body{font-feature-settings:normal}
 .kb-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;color:var(--t2)}
 .kb-row:last-child{border-bottom:none}
 @media (hover:none),(pointer:coarse){.kb,.desk-only{display:none !important}}
+
+/* ═══ REPORTS ═════════════════════════════════════════════════════════════ */
+.rp-filters{gap:10px}
+.rp-presets{flex-wrap:wrap}
+.rp-date{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.6px}
+.rp-date .fsel{padding:0 10px;color-scheme:dark;font-family:var(--sans)}
+.rp-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.rp-group{grid-column:1/-1;font-size:11px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin:14px 0 2px}
+.rp-group:first-child{margin-top:0}
+.rp-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px 16px 14px;display:flex;flex-direction:column;gap:6px;cursor:pointer;transition:border-color .15s}
+.rp-card:hover,.rp-card:focus-visible{border-color:var(--line-3);outline:none}
+.rp-card-t{font-size:14px;font-weight:600;color:var(--t1)}
+.rp-card-d{font-size:12px;line-height:1.5;color:var(--t3);flex:1}
+.rp-card-a{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
+.rp-view{font-size:12px;font-weight:600;color:var(--blue)}
+.rp-pdf-btn{height:28px;padding:0 12px;border:1px solid var(--line-3);border-radius:var(--r-xs);background:transparent;color:var(--t2);font:600 11.5px var(--sans);cursor:pointer}
+.rp-pdf-btn:hover{color:#fff;background:var(--blue);border-color:var(--blue)}
+.rp-pdf-btn:disabled,.rp-dl:disabled{opacity:.5;cursor:wait}
+.rp-view-hd{display:flex;align-items:center;gap:14px;margin-bottom:18px;flex-wrap:wrap}
+.rp-view-t{flex:1;min-width:180px}
+.rp-dl{height:36px;padding:0 18px;font-size:13px}
+.rp-kpis{grid-template-columns:repeat(5,minmax(0,1fr))}
+.rp-sec-t{margin:6px 0 10px}
+.rp-num{text-align:right}
+thead th.rp-num{text-align:right}
+.rp-total td{font-weight:700;border-top:1px solid var(--line-3);background:var(--panel-2)}
+.rp-note{font-size:12px;color:var(--t3);font-style:italic;margin:-6px 0 18px}
+.rp-cal-tbl{min-width:640px;table-layout:fixed}
+.rp-cal-tbl th,.rp-cal-tbl td{text-align:center}
+.rp-cal{font-size:12px;line-height:1.35;padding:8px 4px}
+.rp-cal.pos{color:var(--pos);background:var(--green-dim)}
+.rp-cal.neg{color:var(--neg);background:var(--red-dim)}
+.rp-cal-n{display:block;font-size:10px;color:var(--t3)}
+.rp-cal-off{background:var(--ink)}
+@media(max-width:1000px){.rp-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.rp-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:600px){
+  .rp-grid{grid-template-columns:1fr}
+  .rp-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .rp-filters .fsel,.rp-date{flex:1 1 140px}
+  .rp-date .fsel{flex:1}
+  .rp-presets button{height:34px}
+  .rp-view-hd .rp-dl{width:100%;height:44px}
+  .rp-pdf-btn{height:36px;padding:0 16px}
+}

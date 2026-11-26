@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<link rel="stylesheet" href="style.css?v=rc1">
+<link rel="stylesheet" href="style.css?v=rp1">
 </head>
 <body>
 
@@ -109,6 +109,11 @@
         <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="1" y="9" width="3" height="5" rx="1" fill="currentColor"/><rect x="6" y="6" width="3" height="8" rx="1" fill="currentColor"/><rect x="11" y="2" width="3" height="12" rx="1" fill="currentColor"/></svg>
         Charts
         <kbd class="kb">C</kbd>
+      </button>
+      <button class="sb-item" data-page="reports" onclick="goPage('reports')">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M3.5 1.5h5.5l3 3v9h-8.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8.5 1.5v3.5h3.5M5.5 8h4M5.5 10.5h4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        Reports
+        <kbd class="kb">R</kbd>
       </button>
     </nav>
 
@@ -396,6 +401,29 @@
         </div>
       </div>
 
+      <div class="page" id="page-reports">
+        <div class="pg-head">
+          <div class="pg-title">Reports</div>
+          <div class="pg-sub" id="rp-sub">—</div>
+        </div>
+        <div class="filter-bar rp-filters">
+          <div class="dx-seg rp-presets" id="rp-presets" role="group" aria-label="Date range">
+            <button class="on" data-p="all" onclick="rpPreset('all')">All</button>
+            <button data-p="mtd" onclick="rpPreset('mtd')">This month</button>
+            <button data-p="last" onclick="rpPreset('last')">Last month</button>
+            <button data-p="m3" onclick="rpPreset('m3')">3M</button>
+            <button data-p="fy" onclick="rpPreset('fy')">This FY</button>
+            <button data-p="lfy" onclick="rpPreset('lfy')">Last FY</button>
+          </div>
+          <label class="rp-date"><span>From</span><input type="date" class="fsel" id="rp-from" onchange="rpFilter()"></label>
+          <label class="rp-date"><span>To</span><input type="date" class="fsel" id="rp-to" onchange="rpFilter()"></label>
+          <select class="fsel" id="rp-strat" onchange="rpFilter()"><option value="">All strategies</option></select>
+          <select class="fsel" id="rp-sym" onchange="rpFilter()"><option value="">All symbols</option></select>
+        </div>
+        <div class="rp-grid" id="rp-grid"></div>
+        <div id="rp-view" style="display:none"></div>
+      </div>
+
     </div><!-- /content -->
 
     <!-- BOTTOM NAV -->
@@ -445,6 +473,6 @@
 </div>
 
 <div id="toast"></div>
-<script type="module" src="app.js?v=rc1"></script>
+<script type="module" src="app.js?v=rp1"></script>
 </body>
 </html>

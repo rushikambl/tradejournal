@@ -5,6 +5,7 @@ import { getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc, deleteD
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import { firebaseConfig } from './firebase-config.js';
+import { initReports, renderReports } from './reports.js?v=rp1';
 
 const fbApp = initializeApp(firebaseConfig);
 const db = getFirestore(fbApp);
@@ -771,6 +772,7 @@ function renderAll() {
   if (curPage === 'strategy-detail') renderStrategyDetail();
   if (curPage === 'portfolio-detail') renderPortfolioDetail();
   if (curPage === 'charts') renderCharts();
+  if (curPage === 'reports') renderReports();
 }
 
 // ── Navigation ───────────────────────────────────────────────────────────────
@@ -785,6 +787,7 @@ function goPage(name) {
   if (name === 'strategy-detail') renderStrategyDetail();
   if (name === 'portfolio-detail') renderPortfolioDetail();
   if (name === 'accounts') renderAccounts();
+  if (name === 'reports') renderReports();
   closeDrawer();
   document.getElementById('content').scrollTop = 0;
 }
@@ -908,7 +911,7 @@ window.addTrade = async function (next) {
 };
 
 // ── Keyboard shortcuts (desktop) ─────────────────────────────────────────────
-const PAGE_KEYS = { d: 'dashboard', t: 'all', s: 'strategies', p: 'portfolios', a: 'adjustments', c: 'charts', u: 'accounts' };
+const PAGE_KEYS = { d: 'dashboard', t: 'all', s: 'strategies', p: 'portfolios', a: 'adjustments', c: 'charts', r: 'reports', u: 'accounts' };
 function showShortcuts() {
   const row = (k, label) => `<div class="kb-row"><span>${label}</span><span>${k.map(x => `<kbd class="kb">${x}</kbd>`).join(' ')}</span></div>`;
   openModal('Keyboard shortcuts', `<div class="kb-list">
@@ -916,7 +919,7 @@ function showShortcuts() {
     ${row(['Enter'], 'Add trade (in the form)')}
     ${row(['Shift', 'Enter'], 'Add & log the next strategy')}
     ${row(['D'], 'Dashboard')}${row(['T'], 'All trades')}${row(['S'], 'Strategies')}${row(['P'], 'Portfolios')}
-    ${row(['A'], 'Adjustments')}${row(['C'], 'Charts')}${row(['U'], 'Accounts (admins)')}
+    ${row(['A'], 'Adjustments')}${row(['C'], 'Charts')}${row(['R'], 'Reports')}${row(['U'], 'Accounts (admins)')}
     ${row(['1'], 'P&L range 1M (dashboard)')}${row(['3'], 'P&L range 3M')}${row(['0'], 'P&L range All')}
     ${row(['?'], 'This list')}${row(['Esc'], 'Close')}</div>`,
     `<button class="btn-primary" onclick="closeModal()">Got it</button>`);
@@ -1548,4 +1551,8 @@ function showToast(msg) {
 // ── Init ─────────────────────────────────────────────────────────────────────
 boot();
 
+initReports(() => ({
+  trades, stratMap, portfolios, adjustments, deltaInfo,
+  owner: (viewing ? viewing.displayName || viewing.email : me && (me.displayName || me.email)) || '',
+}));
 Object.assign(window, { goPage, closeDrawer, closeModal, syncPreview, showToast, showShortcuts });
