@@ -827,14 +827,22 @@ function nextStrategyFor(date, after) {
   const order = opts.slice(start).concat(opts.slice(0, start));
   return (order.find(s => s.id !== after && !loggedOn(date, s.id)) || opts[0] || {}).id;
 }
+// Trading week: NIFTY on Mon/Tue, SENSEX on Wed/Thu; no trades Fri–Sun
+const SYMBOL_BY_DAY = { 1: 'NIFTY', 2: 'NIFTY', 3: 'SENSEX', 4: 'SENSEX' };
+const weekday = d => new Date(d + 'T00:00:00').getDay();
+// Default log date: today on Mon–Thu, otherwise the most recent Thursday
+function tradeDay() {
+  const d = new Date(today() + 'T00:00:00');
+  while (!SYMBOL_BY_DAY[d.getDay()]) d.setDate(d.getDate() - 1);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
 function syncTradeForm() {
   const sid = document.getElementById('f-strat').value;
   const date = document.getElementById('f-date').value;
   const last = lastTradeOf(sid);
-  if (last) {
-    if (SYMBOLS.includes(last.symbol)) document.getElementById('f-symbol').value = last.symbol;
-    document.getElementById('f-lots').value = last.lots;
-  }
+  if (last) document.getElementById('f-lots').value = last.lots;
+  const sym = SYMBOL_BY_DAY[weekday(date)] || (last && last.symbol);
+  if (SYMBOLS.includes(sym)) document.getElementById('f-symbol').value = sym;
   const dup = document.getElementById('f-dup');
   if (dup) dup.textContent = loggedOn(date, sid) ? 'Already logged for this date — adding will create a second row.' : '';
 }
@@ -847,7 +855,7 @@ window.openTradeModal = function (opt = {}) {
       `<button class="btn-ghost" onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="closeModal();goPage('strategies');openStrategyModal()">Create Strategy</button>`);
     return;
   }
-  const date = opt.date || today();
+  const date = opt.date || tradeDay();
   const pick = nextStrategyFor(date, opt.after);
   openModal('New Trade', `
     <div class="mrow">
