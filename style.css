@@ -630,3 +630,128 @@ thead th.rp-num{text-align:right}
   .rp-view-hd .rp-dl{width:100%;height:44px}
   .rp-pdf-btn{height:36px;padding:0 16px}
 }
+
+/* ═══ UNSLOP — "evening ledger" layer ══════════════════════════════════════
+   Direction: exact, unhurried, evening. Graphite surfaces, one orange accent,
+   figures set like a statement. Moments: DD-per-lot chart + target delta.
+   Signature: the thin step bar toward the next delta.
+   Pass method: unslop by Damir Sokolovsky (@heydamir), CC BY 4.0
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root{
+  /* graphite ramp */
+  --ink:#141415; --ink-2:#141415; --rail:#0f0f10;
+  --panel:#19191b; --panel-2:#232325; --panel-3:#232325;
+  --line:rgba(237,237,237,.07); --line-2:rgba(237,237,237,.10); --line-3:rgba(237,237,237,.16); --hi:transparent;
+  --t1:#ededed; --t2:#a1a1a6; --t3:#85858b; --t4:#6b6b70; --text3:#85858b;
+  /* one accent: desk-lamp orange */
+  --accent:#e2703f; --accent-2:#e2703f; --orange:#e2703f; --orange-dark:#c95f33;
+  --orange-dim:rgba(226,112,63,.10); --orange-border:rgba(226,112,63,.32); --accent-glow:transparent;
+  --blue:var(--accent); --blue-hover:var(--orange-dark);
+  /* toned semantics */
+  --green:#4cc38a; --pos:#4cc38a; --green-dim:rgba(76,195,138,.10); --pos-border:rgba(76,195,138,.28);
+  --red:#e5484d; --neg:#e5484d; --red-dim:rgba(229,72,77,.10); --neg-border:rgba(229,72,77,.28);
+  --amber:#d9a441; --amber-dim:rgba(217,164,65,.10);
+  /* type */
+  --sans:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;
+  /* radii: controls 6–8, cards 10–12 */
+  --r-lg:12px; --r:10px; --r-sm:8px; --r-xs:6px; --r-2xs:3px; --r-pill:999px;
+  --sh-card:none; --sh-float:none; --sh-pop:0 16px 48px -12px rgba(0,0,0,.6);
+}
+body{font-variant-numeric:tabular-nums;font-feature-settings:normal}
+#topbar{box-shadow:none}
+#sidebar{box-shadow:none;border-right:1px solid var(--line)}
+#bnav{box-shadow:none;border-top:1px solid var(--line)}
+#content{background:var(--ink)}
+.pg-banner,.dx-hero,.kpi,.card,.filter-bar,.tbl-card,.scard,.dx-dcard,.lg-card{background:var(--panel);border:1px solid var(--line);box-shadow:none}
+.dx-hero{background:var(--panel)}
+
+/* Type: sentence case, weights 400–600, no wide tracking */
+.sb-grp,.pg-eyebrow,.sec-lbl,.kpi-lbl,.card-lbl,thead th,.switch-lbl,.bn,.mf label,.user-role,
+.dx-eyebrow,.dx-sec-t,.dx-dc-lbl,.dx-day-date span,.rp-date,.rp-group,.badge-legacy{
+  text-transform:none;letter-spacing:0;font-weight:500}
+.sb-grp{font-size:12px;color:var(--t3);padding:24px 12px 8px}
+.sb-grp:first-child{padding-top:8px}
+.pg-eyebrow,.dx-eyebrow,.kpi-lbl,.dx-dc-lbl,.user-role,.switch-lbl,.mf label{font-size:12px;color:var(--t3)}
+.sec-lbl,.card-lbl,.dx-sec-t,.rp-group{font-size:13px;color:var(--t1)}
+thead th{font-size:12px;color:var(--t3);padding:12px 16px}
+.dx-day-date span{font-size:11px}
+.bn{font-size:10px}
+.pg-title,.sb-logo,.tb-logo,.scard-name,.sp-logo{font-weight:600;letter-spacing:-.2px}
+.sb-item.active,.dx-dc-name,.strat-tag,.strat-tag.dyn,.tag,.tag-delta,.tag-norm,.sym-tag,.spill,.dx-btn,.f-btn,.sb-sync,.rp-pdf-btn,.rp-view{font-weight:500;letter-spacing:0}
+.kpi-val,.dx-hero-num,.pg-hero-num,.scard-net,.dx-dc-dd,.dx-day-tot,.ri-pnl{font-family:var(--mono);font-weight:400;letter-spacing:0}
+.rp-total td{font-weight:600}
+.rp-note{font-style:normal}
+
+/* Navigation: 36px rows, 2px gap, one icon column */
+.sb-item{height:36px;gap:12px;padding:0 12px;margin-bottom:2px;font-size:13.5px;font-weight:400;
+  transition:color .15s ease-out,background-color .15s ease-out}
+.sb-item:hover{background:var(--panel-2);color:var(--t1)}
+.sb-item.active{background:var(--panel-2);color:var(--t1);font-weight:500}
+.sb-item.active svg{stroke:var(--accent)}
+.sb-item.active::before{background:var(--accent);box-shadow:none}
+
+/* One primary action: the top-bar Add Trade. Sidebar + banner copies removed */
+.sb-add,.dx-add{display:none !important}
+.tb-add,.btn-primary,.bn-circle,.modal-icon{background:var(--t1);color:#141415;box-shadow:none;font-weight:500;border-radius:var(--r-sm)}
+.tb-add:hover,.btn-primary:hover{background:#ffffff;color:#141415;filter:none;transform:none}
+.tb-add svg,.btn-primary svg,.bn-circle svg,.modal-icon svg{stroke:#141415}
+.tb-add{height:36px;padding:0 16px}
+.kb-on-accent{background:rgba(20,20,21,.08);border-color:rgba(20,20,21,.2);color:#141415}
+.rp-pdf-btn:hover{color:#141415;background:var(--t1);border-color:var(--t1)}
+.rp-view{color:var(--accent)}
+
+/* No glows, no pulses, no lifts */
+.cdot,.kpi-dot,.sync-dot,.switch input:checked ~ .knob{box-shadow:none}
+.sync-dot,.sync-dot.pulse{animation:none}
+.sync-pill{background:transparent;border:none;padding:0 4px;font-weight:500;color:var(--t3)}
+.card:hover,.scard:hover,.kpi:hover,.dx-dcard:hover{transform:none;box-shadow:none;border-color:var(--line-2)}
+.sb-sync,.chip,.f-btn,.dx-seg button,.dx-btn,.fsel,.rp-card,.card,.kpi,.scard,.dx-dcard{
+  transition-property:color,background-color,border-color,opacity;transition-duration:.15s;transition-timing-function:ease-out}
+
+/* Pills → quiet meta text */
+.dx-card-hd .tag,.count-tag,.dx-today{background:transparent;border:none;padding:0;border-radius:0;font-size:12px;font-weight:400;color:var(--t3);font-family:var(--sans)}
+.dx-today.ok{color:var(--pos);background:transparent}
+.dx-today.miss{color:var(--amber);background:transparent}
+.dx-state{font-size:12px;color:var(--t3)}
+.dx-state.ok{color:var(--pos)}
+.dx-state.need{color:var(--accent);font-weight:500}
+.dx-chip{background:transparent;border:none;padding:0;gap:6px;font-size:12.5px;border-radius:0}
+.dx-day-mid{gap:4px 16px;align-items:center}
+
+/* Spacing on the 4px grid */
+.dx-hero{padding:24px}
+.dx-hero-num{font-size:40px;margin:12px 0 8px}
+.dx-hero-meta{gap:8px 12px;font-size:13px}
+.dx-sec-hd{margin:0 0 12px}
+.dx-delta,.dx-stats{gap:12px}
+.dx-dcard{padding:20px}
+.dx-dc-top{margin-bottom:12px}
+.kpi,.dx-stats .kpi{padding:16px 20px}
+.dx-stats .kpi-top{margin-bottom:8px}
+.card{padding:24px}
+.dx-card-hd{margin-bottom:16px}
+.dx-day{padding:12px 0;gap:16px}
+.filter-bar{padding:12px 16px;gap:8px}
+
+/* Moment 1: target delta, set as the number you act on */
+.dx-dc-delta{font-family:var(--mono);font-size:48px;font-weight:400;letter-spacing:-1px;color:var(--accent)}
+.dx-dcard.need{border-color:var(--orange-border);box-shadow:none}
+.dx-dc-dd{font-size:16px}
+
+/* Signature: thin step bar toward the next delta */
+.dx-bar{height:4px;border-radius:var(--r-2xs);background:var(--panel-2);margin:16px 0 8px}
+.dx-bar i{border-radius:var(--r-2xs);background:var(--accent);transition:width .4s ease-out}
+.dx-dc-foot{font-size:12px}
+.dx-dc-row{margin-top:16px;padding-top:12px}
+.dx-btn{height:28px;border-radius:var(--r-xs);background:transparent;border:1px solid var(--orange-border);color:var(--accent)}
+.dx-btn:hover{background:var(--orange-dim)}
+
+/* Segmented range control */
+.dx-seg{border-radius:var(--r-sm);padding:2px;background:var(--panel-2)}
+.dx-seg button{border-radius:var(--r-xs);height:24px;font-weight:500}
+.dx-seg button.on,.dx-seg button.active{background:var(--panel);color:var(--t1);box-shadow:none}
+
+/* Chips and selects: control radius, not pills */
+.chip,.fsel,.tag,.strat-tag,.strat-tag.dyn,.tag-delta,.tag-norm,.badge-legacy{border-radius:var(--r-xs)}
+.dx-skel{animation:none}

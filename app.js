@@ -127,7 +127,7 @@ function setSyncState(state) {
 }
 
 // ── Formatters ─────────────────────────────────────────────────────────────
-function fmt(n) { return Math.abs(n).toLocaleString('en-IN', { maximumFractionDigits: 2, minimumFractionDigits: 0 }); }
+function fmt(n) { return Math.abs(n).toLocaleString('en-IN', { maximumFractionDigits: 2, minimumFractionDigits: 2 }); }
 function inr(n) { return '₹' + fmt(n); }
 function sig(n) { return (n >= 0 ? '+' : '−') + inr(Math.abs(n)); }
 function pc(n) { return n > 0 ? 'vpos' : n < 0 ? 'vneg' : 'vneu'; }
@@ -300,7 +300,7 @@ function renderDashboard() {
   const loggedN = expect.filter(s => todayTr.some(t => t.strategyId === s.id)).length;
   const chip = document.getElementById('dx-today-chip');
   chip.className = 'dx-today ' + (loggedN === expect.length && expect.length ? 'ok' : loggedN ? 'miss' : '');
-  chip.textContent = loggedN === expect.length && expect.length ? '✓ Today logged' : loggedN ? loggedN + '/' + expect.length + ' logged today' : 'Today not logged';
+  chip.textContent = loggedN === expect.length && expect.length ? 'Today logged' : loggedN ? loggedN + '/' + expect.length + ' logged today' : 'Today not logged';
 
   // Delta control
   const dEl = document.getElementById('dx-delta');
@@ -310,8 +310,8 @@ function renderDashboard() {
     if (!d) return `<div class="dx-dcard"><div class="dx-dc-top"><span class="dx-dc-name"><span class="cdot" style="background:${s.color}"></span>${esc(s.name)}</span></div>
       <div style="font-size:12.5px;color:var(--t2);line-height:1.5;margin-bottom:12px">No delta rule yet. Add a base and cap delta to see the target here.</div>
       ${ro ? '' : `<button class="dx-btn ghost" onclick="openStrategyModal('${s.id}')">Set up rule</button>`}</div>`;
-    const badge = d.set == null ? `<span class="tag tag-gray">AlgoTest: not recorded</span>`
-      : d.need ? `<span class="tag tag-amber">Change ${d.set} → ${d.target}</span>` : `<span class="tag tag-green">✓ In sync</span>`;
+    const badge = d.set == null ? `<span class="dx-state">AlgoTest: not recorded</span>`
+      : d.need ? `<span class="dx-state need">Change ${d.set} → ${d.target}</span>` : `<span class="dx-state ok">In sync</span>`;
     return `<div class="dx-dcard${d.need ? ' need' : ''}">
       <div class="dx-dc-top"><span class="dx-dc-name"><span class="cdot" style="background:${s.color}"></span>${esc(s.name)}</span>${badge}</div>
       <div class="dx-dc-main">
@@ -319,7 +319,7 @@ function renderDashboard() {
         <div><div class="dx-dc-lbl" style="text-align:right">DD per lot</div><div class="dx-dc-dd ${d.ddpl < 0 ? 'vneg' : 'vneu'}">${d.ddpl < 0 ? '−' + inr(Math.abs(d.ddpl)) : '₹0'}</div></div>
       </div>
       <div class="dx-bar" role="progressbar" aria-valuenow="${d.pct}" aria-valuemin="0" aria-valuemax="100" aria-label="Progress to next delta step"><i style="width:${d.pct}%"></i></div>
-      <div class="dx-dc-foot"><span>${s.deltaBase} → cap ${s.deltaCap}</span><span>${d.capped ? 'at cap' : inr(Math.ceil(d.toNext)) + ' more → ' + (d.target + 1)}</span></div>
+      <div class="dx-dc-foot"><span>${s.deltaBase} → cap ${s.deltaCap}</span><span>${d.capped ? 'at cap' : '₹' + Math.ceil(d.toNext).toLocaleString('en-IN') + ' more → ' + (d.target + 1)}</span></div>
       <div class="dx-dc-row"><span>Set in AlgoTest: <b style="color:var(--t1);font-family:var(--mono)">${d.set ?? '—'}</b>${d.setOn ? ` <span style="color:var(--t3)">· ${d.setOn}</span>` : ''}</span>
         ${!ro && d.set !== d.target ? `<button class="dx-btn" onclick="markDeltaSet('${s.id}',${d.target})">Mark ${d.target} as set</button>` : ''}</div>
     </div>`;
@@ -697,10 +697,10 @@ function lineDS(data, color) {
 }
 function chartOpts(extra = {}) {
   return {
-    plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ₹' + (c.parsed.y ?? 0).toLocaleString('en-IN') } }, ...extra.plugins },
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ' + sig(c.parsed.y ?? 0) } }, ...extra.plugins },
     scales: {
-      x: { grid: { color: 'rgba(160,160,210,.12)', lineWidth: .5 }, ticks: { font: { size: 10, family: "'Open Sans',sans-serif" }, color: '#a3a3a3', maxTicksLimit: 7 } },
-      y: { grid: { color: 'rgba(160,160,210,.12)', lineWidth: .5 }, ticks: { font: { size: 10, family: "'Open Sans',sans-serif" }, color: '#a3a3a3', callback: v => '₹' + v.toLocaleString('en-IN') } }
+      x: { grid: { color: 'rgba(237,237,237,.06)', lineWidth: 1 }, ticks: { font: { size: 10, family: "'IBM Plex Mono',monospace" }, color: '#85858b', maxTicksLimit: 7 } },
+      y: { grid: { color: 'rgba(237,237,237,.06)', lineWidth: 1 }, ticks: { font: { size: 10, family: "'IBM Plex Mono',monospace" }, color: '#85858b', callback: v => (v < 0 ? '−' : '') + '₹' + Math.abs(v).toLocaleString('en-IN') } }
     },
     animation: { duration: 400 }, responsive: true, maintainAspectRatio: false, ...extra
   };
